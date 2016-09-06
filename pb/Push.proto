@@ -1,0 +1,26 @@
+syntax = "proto3";
+package winston;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+service Insert {
+  rpc Push(stream PushRequest) returns (PushResponse){}
+}
+
+message PushRequest {
+	string RepoName = 1;
+	bool AppendOnly = 2;
+	bytes Data = 3;
+
+}
+
+message PushResponse {
+	
+}
+
+
