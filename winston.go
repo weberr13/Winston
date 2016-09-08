@@ -4,6 +4,8 @@ import (
 	"github.com/LogRhythm/Winston/server"
 	log "github.com/cihub/seelog"
 	"github.com/vrecan/death"
+	"net/http"
+	_ "net/http/pprof"
 	SYS "syscall"
 )
 
@@ -19,6 +21,9 @@ func main() {
 	log.Info("starting winston")
 
 	death := death.NewDeath(SYS.SIGINT, SYS.SIGTERM)
+	go func() {
+		http.ListenAndServe("localhost:6060", nil)
+	}()
 
 	w := server.NewWinston()
 	w.Start()

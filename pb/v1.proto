@@ -20,6 +20,7 @@ message PushRequest {
 	Format format = 3;
 	int32  buckets = 4;
 	string dateField = 5;
+	string hashField = 6;
 	uint64 time = 6;
 
 	enum Format {
