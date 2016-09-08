@@ -2,15 +2,19 @@
     <outputs formatid="all">
            <filter levels="info" formatid="fmtinfo" >
               <rollingfile type="size" filename="winston.log" maxsize="20000000" maxrolls="5" />
+	      <console />
            </filter>
              <filter levels="warn" formatid="fmtwarn">
-              <rollingfile type="size" filename="winston.log" maxsize="20000000" maxrolls="5" />
+             <rollingfile type="size" filename="winston.log" maxsize="20000000" maxrolls="5" />
+             <console />
             </filter>
             <filter levels="error,critical" formatid="fmterror">
               <rollingfile type="size" filename="winston.log" maxsize="20000000" maxrolls="5" />
+              <console />
             </filter>
             <filter levels="debug,trace">
             	<rollingfile type="size" filename="winston.log" maxsize="20000000" maxrolls="5" />
+              <console />
             </filter>
     </outputs>
     <formats>

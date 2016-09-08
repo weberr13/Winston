@@ -8,19 +8,27 @@ option (gogoproto.sizer_all) = true;
 option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
-service Insert {
+service V1 {
   rpc Push(stream PushRequest) returns (PushResponse){}
 }
 
-message PushRequest {
-	string RepoName = 1;
-	bool AppendOnly = 2;
-	bytes Data = 3;
 
+
+message PushRequest {
+	string repo = 1;
+	bytes data = 2;
+	Format format = 3;
+	int32  buckets = 4;
+	string dateField = 5;
+	uint64 time = 6;
+
+	enum Format {
+	RAW  = 0;
+	JSON = 1;
+	}
 }
 
 message PushResponse {
-	
 }
 
 
