@@ -2,31 +2,38 @@ package lfdb
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/boltdb/bolt"
+	log "github.com/cihub/seelog"
 	"time"
 )
 
+//DB is the data structure for storing our database (boltdb)
 type DB struct {
 	Path string
 	db   *bolt.DB
 }
 
+//Row is a single row in the db.
 type Row struct {
 	Data []byte
 	Time time.Time
 }
 
+//NewDB will create a new database using the path for the file that it will create.
 func NewDB(path string) DB {
 	return DB{Path: path}
 }
 
+//Open the boltdb database
 func (d *DB) Open() (err error) {
 	if d.db == nil {
-		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 1 * time.Second})
+		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Second})
 	}
 	return err
 }
 
+//WriteBatch will write all supplied rows into a batch before exiting.
 func (d DB) WriteBatch(row ...Row) error {
 	err := d.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte("data"))
@@ -56,12 +63,51 @@ func (d DB) WriteBatch(row ...Row) error {
 	return err
 }
 
+//Write a key with a value to the db, this will overwrite anything with the same key
+func (d DB) WriteKey(key string, data []byte, bucket string) error {
+	err := d.db.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(bucket))
+		if err != nil {
+			return err
+		}
+		if err = b.Put([]byte(key), data); err != nil {
+			return err
+		}
+		return nil
+	})
+	return err
+}
+
+func (d DB) ReadKey(key string, bucket string) (value []byte, err error) {
+	err = d.db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte(bucket))
+		if b == nil {
+			log.Info("Bucket ", bucket, " does not exist")
+			return fmt.Errorf("Bucket does not exist: ", bucket)
+		}
+		v := b.Get([]byte(key))
+		log.Info("v ", string(v))
+		value = make([]byte, len(v))
+		copy(value, v)
+		return nil
+	})
+	log.Info("value: ", value)
+	return value, err
+}
+
+//U64ToBytes will convert any unt64 into a padding BigEndian set of bytes (8bytes)
 func U64ToBytes(v uint64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, v)
 	return b
 }
 
+//Close ...
 func (d DB) Close() error {
-	return d.db.Close()
+	if d.db != nil {
+		err := d.db.Close()
+		d.db = nil
+		return err
+	}
+	return nil
 }

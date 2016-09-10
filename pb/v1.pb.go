@@ -9,8 +9,10 @@
 		v1.proto
 
 	It has these top-level messages:
+		RepoSettings
 		PushRequest
-		PushResponse
+		Row
+		EMPTY
 */
 package winston
 
@@ -37,53 +39,74 @@ var _ = math.Inf
 // proto package needs to be updated.
 const _ = proto.ProtoPackageIsVersion2 // please upgrade the proto package
 
-type PushRequest_Format int32
+type RepoSettings_Format int32
 
 const (
-	PushRequest_RAW  PushRequest_Format = 0
-	PushRequest_JSON PushRequest_Format = 1
+	RepoSettings_RAW  RepoSettings_Format = 0
+	RepoSettings_JSON RepoSettings_Format = 1
 )
 
-var PushRequest_Format_name = map[int32]string{
+var RepoSettings_Format_name = map[int32]string{
 	0: "RAW",
 	1: "JSON",
 }
-var PushRequest_Format_value = map[string]int32{
+var RepoSettings_Format_value = map[string]int32{
 	"RAW":  0,
 	"JSON": 1,
 }
 
-func (x PushRequest_Format) String() string {
-	return proto.EnumName(PushRequest_Format_name, int32(x))
+func (x RepoSettings_Format) String() string {
+	return proto.EnumName(RepoSettings_Format_name, int32(x))
 }
-func (PushRequest_Format) EnumDescriptor() ([]byte, []int) { return fileDescriptorV1, []int{0, 0} }
+func (RepoSettings_Format) EnumDescriptor() ([]byte, []int) { return fileDescriptorV1, []int{0, 0} }
+
+type RepoSettings struct {
+	Repo      string              `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	Format    RepoSettings_Format `protobuf:"varint,2,opt,name=format,proto3,enum=winston.RepoSettings_Format" json:"format,omitempty"`
+	DateField string              `protobuf:"bytes,3,opt,name=dateField,proto3" json:"dateField,omitempty"`
+	HashField string              `protobuf:"bytes,4,opt,name=hashField,proto3" json:"hashField,omitempty"`
+	Buckets   int32               `protobuf:"varint,5,opt,name=buckets,proto3" json:"buckets,omitempty"`
+}
+
+func (m *RepoSettings) Reset()                    { *m = RepoSettings{} }
+func (m *RepoSettings) String() string            { return proto.CompactTextString(m) }
+func (*RepoSettings) ProtoMessage()               {}
+func (*RepoSettings) Descriptor() ([]byte, []int) { return fileDescriptorV1, []int{0} }
 
 type PushRequest struct {
-	Repo      string             `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
-	Data      []byte             `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
-	Format    PushRequest_Format `protobuf:"varint,3,opt,name=format,proto3,enum=winston.PushRequest_Format" json:"format,omitempty"`
-	Buckets   int32              `protobuf:"varint,4,opt,name=buckets,proto3" json:"buckets,omitempty"`
-	DateField string             `protobuf:"bytes,5,opt,name=dateField,proto3" json:"dateField,omitempty"`
-	Time      uint64             `protobuf:"varint,6,opt,name=time,proto3" json:"time,omitempty"`
+	Repo string `protobuf:"bytes,1,opt,name=repo,proto3" json:"repo,omitempty"`
+	Rows []*Row `protobuf:"bytes,2,rep,name=rows" json:"rows,omitempty"`
 }
 
 func (m *PushRequest) Reset()                    { *m = PushRequest{} }
 func (m *PushRequest) String() string            { return proto.CompactTextString(m) }
 func (*PushRequest) ProtoMessage()               {}
-func (*PushRequest) Descriptor() ([]byte, []int) { return fileDescriptorV1, []int{0} }
+func (*PushRequest) Descriptor() ([]byte, []int) { return fileDescriptorV1, []int{1} }
 
-type PushResponse struct {
+type Row struct {
+	Data []byte `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	Time uint64 `protobuf:"varint,3,opt,name=time,proto3" json:"time,omitempty"`
 }
 
-func (m *PushResponse) Reset()                    { *m = PushResponse{} }
-func (m *PushResponse) String() string            { return proto.CompactTextString(m) }
-func (*PushResponse) ProtoMessage()               {}
-func (*PushResponse) Descriptor() ([]byte, []int) { return fileDescriptorV1, []int{1} }
+func (m *Row) Reset()                    { *m = Row{} }
+func (m *Row) String() string            { return proto.CompactTextString(m) }
+func (*Row) ProtoMessage()               {}
+func (*Row) Descriptor() ([]byte, []int) { return fileDescriptorV1, []int{2} }
+
+type EMPTY struct {
+}
+
+func (m *EMPTY) Reset()                    { *m = EMPTY{} }
+func (m *EMPTY) String() string            { return proto.CompactTextString(m) }
+func (*EMPTY) ProtoMessage()               {}
+func (*EMPTY) Descriptor() ([]byte, []int) { return fileDescriptorV1, []int{3} }
 
 func init() {
+	proto.RegisterType((*RepoSettings)(nil), "winston.RepoSettings")
 	proto.RegisterType((*PushRequest)(nil), "winston.PushRequest")
-	proto.RegisterType((*PushResponse)(nil), "winston.PushResponse")
-	proto.RegisterEnum("winston.PushRequest_Format", PushRequest_Format_name, PushRequest_Format_value)
+	proto.RegisterType((*Row)(nil), "winston.Row")
+	proto.RegisterType((*EMPTY)(nil), "winston.EMPTY")
+	proto.RegisterEnum("winston.RepoSettings_Format", RepoSettings_Format_name, RepoSettings_Format_value)
 }
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -98,6 +121,7 @@ const _ = grpc.SupportPackageIsVersion3
 
 type V1Client interface {
 	Push(ctx context.Context, opts ...grpc.CallOption) (V1_PushClient, error)
+	UpsertRepo(ctx context.Context, in *RepoSettings, opts ...grpc.CallOption) (*EMPTY, error)
 }
 
 type v1Client struct {
@@ -119,7 +143,7 @@ func (c *v1Client) Push(ctx context.Context, opts ...grpc.CallOption) (V1_PushCl
 
 type V1_PushClient interface {
 	Send(*PushRequest) error
-	CloseAndRecv() (*PushResponse, error)
+	CloseAndRecv() (*EMPTY, error)
 	grpc.ClientStream
 }
 
@@ -131,21 +155,31 @@ func (x *v1PushClient) Send(m *PushRequest) error {
 	return x.ClientStream.SendMsg(m)
 }
 
-func (x *v1PushClient) CloseAndRecv() (*PushResponse, error) {
+func (x *v1PushClient) CloseAndRecv() (*EMPTY, error) {
 	if err := x.ClientStream.CloseSend(); err != nil {
 		return nil, err
 	}
-	m := new(PushResponse)
+	m := new(EMPTY)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
 	return m, nil
 }
 
+func (c *v1Client) UpsertRepo(ctx context.Context, in *RepoSettings, opts ...grpc.CallOption) (*EMPTY, error) {
+	out := new(EMPTY)
+	err := grpc.Invoke(ctx, "/winston.V1/UpsertRepo", in, out, c.cc, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // Server API for V1 service
 
 type V1Server interface {
 	Push(V1_PushServer) error
+	UpsertRepo(context.Context, *RepoSettings) (*EMPTY, error)
 }
 
 func RegisterV1Server(s *grpc.Server, srv V1Server) {
@@ -157,7 +191,7 @@ func _V1_Push_Handler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 type V1_PushServer interface {
-	SendAndClose(*PushResponse) error
+	SendAndClose(*EMPTY) error
 	Recv() (*PushRequest, error)
 	grpc.ServerStream
 }
@@ -166,7 +200,7 @@ type v1PushServer struct {
 	grpc.ServerStream
 }
 
-func (x *v1PushServer) SendAndClose(m *PushResponse) error {
+func (x *v1PushServer) SendAndClose(m *EMPTY) error {
 	return x.ServerStream.SendMsg(m)
 }
 
@@ -178,10 +212,33 @@ func (x *v1PushServer) Recv() (*PushRequest, error) {
 	return m, nil
 }
 
+func _V1_UpsertRepo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RepoSettings)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(V1Server).UpsertRepo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/winston.V1/UpsertRepo",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(V1Server).UpsertRepo(ctx, req.(*RepoSettings))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 var _V1_serviceDesc = grpc.ServiceDesc{
 	ServiceName: "winston.V1",
 	HandlerType: (*V1Server)(nil),
-	Methods:     []grpc.MethodDesc{},
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "UpsertRepo",
+			Handler:    _V1_UpsertRepo_Handler,
+		},
+	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Push",
@@ -190,6 +247,52 @@ var _V1_serviceDesc = grpc.ServiceDesc{
 		},
 	},
 	Metadata: fileDescriptorV1,
+}
+
+func (m *RepoSettings) Marshal() (data []byte, err error) {
+	size := m.Size()
+	data = make([]byte, size)
+	n, err := m.MarshalTo(data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
+func (m *RepoSettings) MarshalTo(data []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Repo) > 0 {
+		data[i] = 0xa
+		i++
+		i = encodeVarintV1(data, i, uint64(len(m.Repo)))
+		i += copy(data[i:], m.Repo)
+	}
+	if m.Format != 0 {
+		data[i] = 0x10
+		i++
+		i = encodeVarintV1(data, i, uint64(m.Format))
+	}
+	if len(m.DateField) > 0 {
+		data[i] = 0x1a
+		i++
+		i = encodeVarintV1(data, i, uint64(len(m.DateField)))
+		i += copy(data[i:], m.DateField)
+	}
+	if len(m.HashField) > 0 {
+		data[i] = 0x22
+		i++
+		i = encodeVarintV1(data, i, uint64(len(m.HashField)))
+		i += copy(data[i:], m.HashField)
+	}
+	if m.Buckets != 0 {
+		data[i] = 0x28
+		i++
+		i = encodeVarintV1(data, i, uint64(m.Buckets))
+	}
+	return i, nil
 }
 
 func (m *PushRequest) Marshal() (data []byte, err error) {
@@ -213,37 +316,22 @@ func (m *PushRequest) MarshalTo(data []byte) (int, error) {
 		i = encodeVarintV1(data, i, uint64(len(m.Repo)))
 		i += copy(data[i:], m.Repo)
 	}
-	if len(m.Data) > 0 {
-		data[i] = 0x12
-		i++
-		i = encodeVarintV1(data, i, uint64(len(m.Data)))
-		i += copy(data[i:], m.Data)
-	}
-	if m.Format != 0 {
-		data[i] = 0x18
-		i++
-		i = encodeVarintV1(data, i, uint64(m.Format))
-	}
-	if m.Buckets != 0 {
-		data[i] = 0x20
-		i++
-		i = encodeVarintV1(data, i, uint64(m.Buckets))
-	}
-	if len(m.DateField) > 0 {
-		data[i] = 0x2a
-		i++
-		i = encodeVarintV1(data, i, uint64(len(m.DateField)))
-		i += copy(data[i:], m.DateField)
-	}
-	if m.Time != 0 {
-		data[i] = 0x30
-		i++
-		i = encodeVarintV1(data, i, uint64(m.Time))
+	if len(m.Rows) > 0 {
+		for _, msg := range m.Rows {
+			data[i] = 0x12
+			i++
+			i = encodeVarintV1(data, i, uint64(msg.Size()))
+			n, err := msg.MarshalTo(data[i:])
+			if err != nil {
+				return 0, err
+			}
+			i += n
+		}
 	}
 	return i, nil
 }
 
-func (m *PushResponse) Marshal() (data []byte, err error) {
+func (m *Row) Marshal() (data []byte, err error) {
 	size := m.Size()
 	data = make([]byte, size)
 	n, err := m.MarshalTo(data)
@@ -253,7 +341,36 @@ func (m *PushResponse) Marshal() (data []byte, err error) {
 	return data[:n], nil
 }
 
-func (m *PushResponse) MarshalTo(data []byte) (int, error) {
+func (m *Row) MarshalTo(data []byte) (int, error) {
+	var i int
+	_ = i
+	var l int
+	_ = l
+	if len(m.Data) > 0 {
+		data[i] = 0x12
+		i++
+		i = encodeVarintV1(data, i, uint64(len(m.Data)))
+		i += copy(data[i:], m.Data)
+	}
+	if m.Time != 0 {
+		data[i] = 0x18
+		i++
+		i = encodeVarintV1(data, i, uint64(m.Time))
+	}
+	return i, nil
+}
+
+func (m *EMPTY) Marshal() (data []byte, err error) {
+	size := m.Size()
+	data = make([]byte, size)
+	n, err := m.MarshalTo(data)
+	if err != nil {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
+func (m *EMPTY) MarshalTo(data []byte) (int, error) {
 	var i int
 	_ = i
 	var l int
@@ -288,6 +405,30 @@ func encodeVarintV1(data []byte, offset int, v uint64) int {
 	data[offset] = uint8(v)
 	return offset + 1
 }
+func (m *RepoSettings) Size() (n int) {
+	var l int
+	_ = l
+	l = len(m.Repo)
+	if l > 0 {
+		n += 1 + l + sovV1(uint64(l))
+	}
+	if m.Format != 0 {
+		n += 1 + sovV1(uint64(m.Format))
+	}
+	l = len(m.DateField)
+	if l > 0 {
+		n += 1 + l + sovV1(uint64(l))
+	}
+	l = len(m.HashField)
+	if l > 0 {
+		n += 1 + l + sovV1(uint64(l))
+	}
+	if m.Buckets != 0 {
+		n += 1 + sovV1(uint64(m.Buckets))
+	}
+	return n
+}
+
 func (m *PushRequest) Size() (n int) {
 	var l int
 	_ = l
@@ -295,17 +436,19 @@ func (m *PushRequest) Size() (n int) {
 	if l > 0 {
 		n += 1 + l + sovV1(uint64(l))
 	}
+	if len(m.Rows) > 0 {
+		for _, e := range m.Rows {
+			l = e.Size()
+			n += 1 + l + sovV1(uint64(l))
+		}
+	}
+	return n
+}
+
+func (m *Row) Size() (n int) {
+	var l int
+	_ = l
 	l = len(m.Data)
-	if l > 0 {
-		n += 1 + l + sovV1(uint64(l))
-	}
-	if m.Format != 0 {
-		n += 1 + sovV1(uint64(m.Format))
-	}
-	if m.Buckets != 0 {
-		n += 1 + sovV1(uint64(m.Buckets))
-	}
-	l = len(m.DateField)
 	if l > 0 {
 		n += 1 + l + sovV1(uint64(l))
 	}
@@ -315,7 +458,7 @@ func (m *PushRequest) Size() (n int) {
 	return n
 }
 
-func (m *PushResponse) Size() (n int) {
+func (m *EMPTY) Size() (n int) {
 	var l int
 	_ = l
 	return n
@@ -333,6 +476,181 @@ func sovV1(x uint64) (n int) {
 }
 func sozV1(x uint64) (n int) {
 	return sovV1(uint64((x << 1) ^ uint64((int64(x) >> 63))))
+}
+func (m *RepoSettings) Unmarshal(data []byte) error {
+	l := len(data)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowV1
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := data[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: RepoSettings: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: RepoSettings: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 1:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Repo", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV1
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthV1
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Repo = string(data[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 2:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Format", wireType)
+			}
+			m.Format = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV1
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				m.Format |= (RepoSettings_Format(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		case 3:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field DateField", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV1
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthV1
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.DateField = string(data[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 4:
+			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field HashField", wireType)
+			}
+			var stringLen uint64
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV1
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				stringLen |= (uint64(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			intStringLen := int(stringLen)
+			if intStringLen < 0 {
+				return ErrInvalidLengthV1
+			}
+			postIndex := iNdEx + intStringLen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.HashField = string(data[iNdEx:postIndex])
+			iNdEx = postIndex
+		case 5:
+			if wireType != 0 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Buckets", wireType)
+			}
+			m.Buckets = 0
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV1
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				m.Buckets |= (int32(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+		default:
+			iNdEx = preIndex
+			skippy, err := skipV1(data[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthV1
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
 }
 func (m *PushRequest) Unmarshal(data []byte) error {
 	l := len(data)
@@ -394,6 +712,87 @@ func (m *PushRequest) Unmarshal(data []byte) error {
 			iNdEx = postIndex
 		case 2:
 			if wireType != 2 {
+				return fmt.Errorf("proto: wrong wireType = %d for field Rows", wireType)
+			}
+			var msglen int
+			for shift := uint(0); ; shift += 7 {
+				if shift >= 64 {
+					return ErrIntOverflowV1
+				}
+				if iNdEx >= l {
+					return io.ErrUnexpectedEOF
+				}
+				b := data[iNdEx]
+				iNdEx++
+				msglen |= (int(b) & 0x7F) << shift
+				if b < 0x80 {
+					break
+				}
+			}
+			if msglen < 0 {
+				return ErrInvalidLengthV1
+			}
+			postIndex := iNdEx + msglen
+			if postIndex > l {
+				return io.ErrUnexpectedEOF
+			}
+			m.Rows = append(m.Rows, &Row{})
+			if err := m.Rows[len(m.Rows)-1].Unmarshal(data[iNdEx:postIndex]); err != nil {
+				return err
+			}
+			iNdEx = postIndex
+		default:
+			iNdEx = preIndex
+			skippy, err := skipV1(data[iNdEx:])
+			if err != nil {
+				return err
+			}
+			if skippy < 0 {
+				return ErrInvalidLengthV1
+			}
+			if (iNdEx + skippy) > l {
+				return io.ErrUnexpectedEOF
+			}
+			iNdEx += skippy
+		}
+	}
+
+	if iNdEx > l {
+		return io.ErrUnexpectedEOF
+	}
+	return nil
+}
+func (m *Row) Unmarshal(data []byte) error {
+	l := len(data)
+	iNdEx := 0
+	for iNdEx < l {
+		preIndex := iNdEx
+		var wire uint64
+		for shift := uint(0); ; shift += 7 {
+			if shift >= 64 {
+				return ErrIntOverflowV1
+			}
+			if iNdEx >= l {
+				return io.ErrUnexpectedEOF
+			}
+			b := data[iNdEx]
+			iNdEx++
+			wire |= (uint64(b) & 0x7F) << shift
+			if b < 0x80 {
+				break
+			}
+		}
+		fieldNum := int32(wire >> 3)
+		wireType := int(wire & 0x7)
+		if wireType == 4 {
+			return fmt.Errorf("proto: Row: wiretype end group for non-group")
+		}
+		if fieldNum <= 0 {
+			return fmt.Errorf("proto: Row: illegal tag %d (wire type %d)", fieldNum, wire)
+		}
+		switch fieldNum {
+		case 2:
+			if wireType != 2 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Data", wireType)
 			}
 			var byteLen int
@@ -424,73 +823,6 @@ func (m *PushRequest) Unmarshal(data []byte) error {
 			}
 			iNdEx = postIndex
 		case 3:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Format", wireType)
-			}
-			m.Format = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowV1
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := data[iNdEx]
-				iNdEx++
-				m.Format |= (PushRequest_Format(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 4:
-			if wireType != 0 {
-				return fmt.Errorf("proto: wrong wireType = %d for field Buckets", wireType)
-			}
-			m.Buckets = 0
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowV1
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := data[iNdEx]
-				iNdEx++
-				m.Buckets |= (int32(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-		case 5:
-			if wireType != 2 {
-				return fmt.Errorf("proto: wrong wireType = %d for field DateField", wireType)
-			}
-			var stringLen uint64
-			for shift := uint(0); ; shift += 7 {
-				if shift >= 64 {
-					return ErrIntOverflowV1
-				}
-				if iNdEx >= l {
-					return io.ErrUnexpectedEOF
-				}
-				b := data[iNdEx]
-				iNdEx++
-				stringLen |= (uint64(b) & 0x7F) << shift
-				if b < 0x80 {
-					break
-				}
-			}
-			intStringLen := int(stringLen)
-			if intStringLen < 0 {
-				return ErrInvalidLengthV1
-			}
-			postIndex := iNdEx + intStringLen
-			if postIndex > l {
-				return io.ErrUnexpectedEOF
-			}
-			m.DateField = string(data[iNdEx:postIndex])
-			iNdEx = postIndex
-		case 6:
 			if wireType != 0 {
 				return fmt.Errorf("proto: wrong wireType = %d for field Time", wireType)
 			}
@@ -530,7 +862,7 @@ func (m *PushRequest) Unmarshal(data []byte) error {
 	}
 	return nil
 }
-func (m *PushResponse) Unmarshal(data []byte) error {
+func (m *EMPTY) Unmarshal(data []byte) error {
 	l := len(data)
 	iNdEx := 0
 	for iNdEx < l {
@@ -553,10 +885,10 @@ func (m *PushResponse) Unmarshal(data []byte) error {
 		fieldNum := int32(wire >> 3)
 		wireType := int(wire & 0x7)
 		if wireType == 4 {
-			return fmt.Errorf("proto: PushResponse: wiretype end group for non-group")
+			return fmt.Errorf("proto: EMPTY: wiretype end group for non-group")
 		}
 		if fieldNum <= 0 {
-			return fmt.Errorf("proto: PushResponse: illegal tag %d (wire type %d)", fieldNum, wire)
+			return fmt.Errorf("proto: EMPTY: illegal tag %d (wire type %d)", fieldNum, wire)
 		}
 		switch fieldNum {
 		default:
@@ -688,24 +1020,28 @@ var (
 func init() { proto.RegisterFile("v1.proto", fileDescriptorV1) }
 
 var fileDescriptorV1 = []byte{
-	// 290 bytes of a gzipped FileDescriptorProto
-	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0xe2, 0xe2, 0x28, 0x33, 0xd4, 0x2b,
-	0x28, 0xca, 0x2f, 0xc9, 0x17, 0x62, 0x2f, 0xcf, 0xcc, 0x2b, 0x2e, 0xc9, 0xcf, 0x93, 0xd2, 0x4d,
-	0xcf, 0x2c, 0xc9, 0x28, 0x4d, 0xd2, 0x4b, 0xce, 0xcf, 0xd5, 0x4f, 0xcf, 0x4f, 0xcf, 0xd7, 0x07,
-	0xcb, 0x27, 0x95, 0xa6, 0x81, 0x79, 0x60, 0x0e, 0x98, 0x05, 0xd1, 0xa7, 0x74, 0x99, 0x91, 0x8b,
-	0x3b, 0xa0, 0xb4, 0x38, 0x23, 0x28, 0xb5, 0xb0, 0x34, 0xb5, 0xb8, 0x44, 0x48, 0x88, 0x8b, 0xa5,
-	0x28, 0xb5, 0x20, 0x5f, 0x82, 0x51, 0x81, 0x51, 0x83, 0x33, 0x08, 0xcc, 0x06, 0x89, 0xa5, 0x24,
-	0x96, 0x24, 0x4a, 0x30, 0x01, 0xc5, 0x78, 0x82, 0xc0, 0x6c, 0x21, 0x63, 0x2e, 0xb6, 0xb4, 0xfc,
-	0xa2, 0xdc, 0xc4, 0x12, 0x09, 0x66, 0xa0, 0x28, 0x9f, 0x91, 0xb4, 0x1e, 0xd4, 0x01, 0x7a, 0x48,
-	0xa6, 0xe9, 0xb9, 0x81, 0x95, 0x04, 0x41, 0x95, 0x0a, 0x49, 0x70, 0xb1, 0x27, 0x95, 0x26, 0x67,
-	0xa7, 0x96, 0x14, 0x4b, 0xb0, 0x00, 0x75, 0xb1, 0x06, 0xc1, 0xb8, 0x42, 0x32, 0x5c, 0x9c, 0x40,
-	0x63, 0x53, 0xdd, 0x32, 0x53, 0x73, 0x52, 0x24, 0x58, 0xc1, 0x76, 0x23, 0x04, 0x40, 0x0e, 0x28,
-	0xc9, 0xcc, 0x4d, 0x95, 0x60, 0x03, 0x4a, 0xb0, 0x04, 0x81, 0xd9, 0x4a, 0xd2, 0x5c, 0x6c, 0x10,
-	0xd3, 0x85, 0xd8, 0xb9, 0x98, 0x83, 0x1c, 0xc3, 0x05, 0x18, 0x84, 0x38, 0xb8, 0x58, 0xbc, 0x82,
-	0xfd, 0xfd, 0x04, 0x18, 0x95, 0xf8, 0xb8, 0x78, 0x20, 0xce, 0x28, 0x2e, 0xc8, 0xcf, 0x2b, 0x4e,
-	0x35, 0xb2, 0xe5, 0x62, 0x0a, 0x33, 0x14, 0x32, 0xe7, 0x62, 0x01, 0x89, 0x0a, 0x89, 0x60, 0x73,
-	0xab, 0x94, 0x28, 0x9a, 0x28, 0x44, 0xab, 0x12, 0x83, 0x06, 0xa3, 0x93, 0xc8, 0x89, 0x87, 0x72,
-	0x0c, 0x27, 0x1e, 0xc9, 0x31, 0x5e, 0x00, 0xe2, 0x07, 0x40, 0x3c, 0xe3, 0xb1, 0x1c, 0x43, 0x12,
-	0x1b, 0x38, 0x04, 0x8d, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0xe0, 0x11, 0x0e, 0x38, 0x85, 0x01,
-	0x00, 0x00,
+	// 359 bytes of a gzipped FileDescriptorProto
+	0x1f, 0x8b, 0x08, 0x00, 0x00, 0x09, 0x6e, 0x88, 0x02, 0xff, 0x6c, 0x51, 0x4b, 0x6e, 0xe2, 0x40,
+	0x10, 0x75, 0x63, 0x83, 0xa1, 0x40, 0x08, 0xb5, 0x18, 0xc9, 0x62, 0x90, 0x65, 0x79, 0xe5, 0x0d,
+	0x66, 0x60, 0x66, 0x0e, 0x30, 0x13, 0x85, 0x45, 0xa4, 0x24, 0xa8, 0xc9, 0x47, 0x59, 0xda, 0xd0,
+	0xd8, 0x56, 0x62, 0xda, 0x71, 0xb7, 0xe3, 0xab, 0xe4, 0x48, 0x48, 0xd9, 0xe4, 0x08, 0x09, 0xb9,
+	0x48, 0xe4, 0x36, 0x01, 0xa4, 0xb0, 0x7b, 0xf5, 0x5e, 0xbf, 0xaa, 0x7a, 0xd5, 0x50, 0x7f, 0x1a,
+	0xb9, 0x49, 0xca, 0x04, 0xc3, 0x7a, 0x1e, 0xad, 0xb8, 0x60, 0xab, 0xde, 0x20, 0x88, 0x44, 0x98,
+	0xf9, 0xee, 0x9c, 0xc5, 0xc3, 0x80, 0x05, 0x6c, 0x28, 0x75, 0x3f, 0x5b, 0xca, 0x4a, 0x16, 0x12,
+	0x95, 0x3e, 0xfb, 0x05, 0x41, 0x8b, 0xd0, 0x84, 0xcd, 0xa8, 0x10, 0xd1, 0x2a, 0xe0, 0x18, 0x83,
+	0x96, 0xd2, 0x84, 0x19, 0xc8, 0x42, 0x4e, 0x83, 0x48, 0x8c, 0xff, 0x40, 0x6d, 0xc9, 0xd2, 0xd8,
+	0x13, 0x46, 0xc5, 0x42, 0x4e, 0x7b, 0xdc, 0x77, 0xb7, 0xd3, 0xdc, 0x43, 0xab, 0x3b, 0x91, 0x6f,
+	0xc8, 0xf6, 0x2d, 0xee, 0x43, 0x63, 0xe1, 0x09, 0x3a, 0x89, 0xe8, 0xc3, 0xc2, 0x50, 0x65, 0xbb,
+	0x3d, 0x51, 0xa8, 0xa1, 0xc7, 0xc3, 0x52, 0xd5, 0x4a, 0x75, 0x47, 0x60, 0x03, 0x74, 0x3f, 0x9b,
+	0xdf, 0x53, 0xc1, 0x8d, 0xaa, 0x85, 0x9c, 0x2a, 0xf9, 0x2a, 0xed, 0x9f, 0x50, 0x2b, 0xe7, 0x60,
+	0x1d, 0x54, 0xf2, 0xef, 0xb6, 0xa3, 0xe0, 0x3a, 0x68, 0x67, 0xb3, 0xcb, 0x8b, 0x0e, 0xb2, 0x4f,
+	0xa0, 0x39, 0xcd, 0x78, 0x48, 0xe8, 0x63, 0x46, 0xb9, 0x38, 0x9a, 0xc5, 0x02, 0x2d, 0x65, 0x39,
+	0x37, 0x2a, 0x96, 0xea, 0x34, 0xc7, 0xad, 0x7d, 0x12, 0x96, 0x13, 0xa9, 0xd8, 0x03, 0x50, 0x09,
+	0xcb, 0x0b, 0xf3, 0xc2, 0x13, 0x9e, 0x8c, 0xdc, 0x22, 0x12, 0x17, 0x9c, 0x88, 0x62, 0x2a, 0xd3,
+	0x68, 0x44, 0x62, 0x5b, 0x87, 0xea, 0xe9, 0xf9, 0xf4, 0xea, 0x6e, 0x1c, 0x43, 0xe5, 0x66, 0x84,
+	0x7f, 0x81, 0x56, 0xac, 0x80, 0xbb, 0xbb, 0xce, 0x07, 0x1b, 0xf5, 0xda, 0x3b, 0x56, 0x7a, 0x6c,
+	0xc5, 0x41, 0xf8, 0x2f, 0xc0, 0x75, 0xc2, 0x69, 0x2a, 0x8a, 0x63, 0xe2, 0x1f, 0x47, 0x6f, 0xfb,
+	0xdd, 0xf8, 0xbf, 0xbb, 0x7e, 0x37, 0x95, 0xf5, 0xc6, 0x44, 0xaf, 0x1b, 0x13, 0xbd, 0x6d, 0x4c,
+	0xf4, 0xfc, 0x61, 0x2a, 0x7e, 0x4d, 0x7e, 0xeb, 0xef, 0xcf, 0x00, 0x00, 0x00, 0xff, 0xff, 0x8e,
+	0x3b, 0x0e, 0xb0, 0x1a, 0x02, 0x00, 0x00,
 }
