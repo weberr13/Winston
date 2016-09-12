@@ -78,6 +78,10 @@ func (d DB) WriteKey(key string, data []byte, bucket string) error {
 	return err
 }
 
+func (d DB) ReadView(f func(tx *bolt.Tx) error) error {
+	return d.db.View(f)
+}
+
 func (d DB) ReadKey(key string, bucket string) (value []byte, err error) {
 	err = d.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))

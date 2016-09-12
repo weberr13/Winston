@@ -2,6 +2,7 @@ package lfdb
 
 import (
 	"fmt"
+	"github.com/boltdb/bolt"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -37,6 +38,16 @@ func (r Repo) GetBucketPathsForDate(t time.Time, basePath string) ([]DB, error) 
 		}
 	}
 	return buckets, err
+}
+
+func (r Repo) ReadBucket(bucketPath string, f func(tx *bolt.Tx) error) error {
+	db := NewDB(bucketPath)
+	err := db.Open()
+	defer db.Close()
+	if err != nil {
+		return err
+	}
+	return db.ReadView(f)
 }
 
 func (r Repo) CreateBucketIfNotExist(t time.Time, basePath string, bucket int) (db DB, err error) {

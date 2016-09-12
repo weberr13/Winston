@@ -5,6 +5,7 @@ import (
 	pb "github.com/LogRhythm/Winston/pb"
 	log "github.com/cihub/seelog"
 	ENV "github.com/joho/godotenv"
+	"encoding/binary"
 	// "github.com/davecgh/go-spew/spew"
 	"fmt"
 	"github.com/tidwall/gjson"
@@ -12,11 +13,13 @@ import (
 	"google.golang.org/grpc"
 	"stablelib.com/v1/crypto/siphash"
 	// "google.golang.org/grpc/grpclog"
+	"github.com/boltdb/bolt"
 	"io"
 	"net"
 	"time"
 )
 
+//Winston
 type Winston struct {
 	server          *grpc.Server
 	listen          net.Listener
@@ -26,6 +29,7 @@ type Winston struct {
 
 const settingsBucket = "v1_settings"
 
+//NewWinston creates the winston server
 func NewWinston() Winston {
 	grpc.EnableTracing = true
 	env, err := ENV.Read()
@@ -54,12 +58,14 @@ func NewWinston() Winston {
 	return w
 }
 
+//Start ...
 func (w Winston) Start() {
 	go w.server.Serve(w.listen)
 }
 
 type RowsBucketedByBucketAndDate []map[time.Time][]LFDB.Row
 
+//Push data into winston db.
 func (w Winston) Push(stream pb.V1_PushServer) error {
 	var settings *pb.RepoSettings
 	bucketRows := make(RowsBucketedByBucketAndDate, 65536)
@@ -109,7 +115,7 @@ func (w Winston) Push(stream pb.V1_PushServer) error {
 			if r.Time == 0 {
 				t = time.Now()
 			} else {
-				t = time.Unix(int64(r.Time), 0) //time in seconds
+				t = time.Unix(0, int64(r.Time)) //time in nanoseconds
 			}
 
 			if bucketRows[bucket] == nil {
@@ -122,6 +128,55 @@ func (w Winston) Push(stream pb.V1_PushServer) error {
 			bucketRows[bucket][mapTime] = append(bucketRows[bucket][mapTime], LFDB.Row{Time: t, Data: r.Data})
 		}
 	}
+}
+
+// func (s *routeGuideServer) ListFeatures(rect *pb.Rectangle, stream pb.RouteGuide_ListFeaturesServer) error {
+// 	for _, feature := range s.savedFeatures {
+// 		if inRange(feature.Location, rect) {
+// 			if err := stream.Send(feature); err != nil {
+// 				return err
+// 			}
+// 		}
+// 	}
+// 	return nil
+// }
+
+func (w Winston) PullBucketByTime(pull *pb.PullBucket, stream pb.V1_PullBucketByTimeServer) error {
+	if pull == nil {
+		return fmt.Errorf("Invalid request")
+	}
+	settings, err := w.getSettingsForRepo(pull.Repo)
+	if err != nil {
+		return fmt.Errorf("Failed to get settings: ", err)
+	}
+	repo := LFDB.NewRepo(settings.Repo)
+	err  = repo.ReadBucket(pull.BucketPath, func(tx *bolt.Tx)error {
+		b := tx.Bucket([]byte("data"))
+		count :=0
+		if b == nil {
+			return fmt.Errorf("Bucket does not exist")
+		}
+		tb := b.Bucket([]byte("time"))
+		if nil == tb {
+			return fmt.Errorf("Bucket doesn't exist")
+		}
+				tb.ForEach(func(key, v []byte) error {
+
+			rt := binary.BigEndian.Uint64(v)
+			if rt >= pull.StartTime && rt <= pull.EndTime {
+				count++
+				stream.Send(&pb.PullResponse{Repo: settings.Repo, Rows: []*pb.Row{
+					0: &pb.Row{Time: rt, Data: b.Get(key)},
+				}})
+			}
+			log.Info("Read ", count, " records from db")
+			return nil
+		})
+		return nil
+
+	})
+	return err
+
 }
 
 func (w Winston) getSettingsForRepo(repo string) (settings *pb.RepoSettings, err error) {
@@ -173,6 +228,7 @@ func (w Winston) openSettingsDB() (db LFDB.DB, err error) {
 	return db, err
 }
 
+//WriteToDB writes a slice of rows to disk.
 func (w Winston) WriteToDB(settings pb.RepoSettings, bucket int, t time.Time, rows []LFDB.Row) error {
 	repo := LFDB.NewRepo(settings.Repo)
 	db, err := repo.CreateBucketIfNotExist(t, w.dataDir, bucket)
@@ -194,6 +250,7 @@ func (w Winston) WriteToDB(settings pb.RepoSettings, bucket int, t time.Time, ro
 	return err
 }
 
+//Close winston
 func (w Winston) Close() error {
 	if w.server != nil {
 		w.server.GracefulStop()

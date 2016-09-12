@@ -41,6 +41,7 @@ func RunWorkload(name string, batch int, b *testing.B) {
 	}
 	for n := 0; n < b.N; n++ {
 		_ = db.WriteBatch(rows...)
+		// db.ReadView(func(tx bolt.))
 		// var keys [][]byte
 		// for _, r := range results {
 		// 	keys = append(keys, r.BoomID)
