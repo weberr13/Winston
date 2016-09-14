@@ -9,19 +9,27 @@ option (gogoproto.unmarshaler_all) = true;
 option (gogoproto.goproto_getters_all) = false;
 
 service V1 {
-  rpc Push(stream PushRequest) returns (EMPTY){}
   rpc UpsertRepo(RepoSettings) returns (EMPTY){}
-  rpc PullBucketByTime(PullBucket) returns (stream PullResponse){}
+  
+  rpc Write(stream WriteRequest) returns (EMPTY){}
+  rpc ReadBucketByTime(ReadBucket) returns (stream ReadResponse){}
+  rpc ReadByTime(Read) returns (stream ReadResponse){}
 }
 
-message PullBucket {
+message ReadBucket {
 	string repo = 1;
-	uint64 startTime = 2;
-	uint64 endTime = 3;
+	uint64 startTimeMs = 2;
+	uint64 endTimeMs = 3;
 	string bucketPath = 4;
 }
 
-message PullResponse {
+message Read {
+	string repo = 1;
+	uint64 startTimeMs = 2;
+	uint64 endTimeMs = 3;
+}
+
+message ReadResponse {
 	string repo = 1;
 	repeated Row rows = 2;
 }
@@ -29,9 +37,9 @@ message PullResponse {
 message RepoSettings {
 	string repo = 1;
 	Format format = 2;
-	string dateField = 3;
-	string hashField = 4;
-	int32 buckets = 5;
+	string timeField = 3;
+	repeated string groupByFields = 4;
+	int32 groupByBuckets = 5;
 
     enum Format {
 		RAW  = 0;
@@ -39,14 +47,14 @@ message RepoSettings {
 	}
 }
 
-message PushRequest {
+message WriteRequest {
 	string repo = 1;
 	repeated Row rows = 2;
 }
 
 message Row {
 	bytes data  = 2;
-	uint64 time = 3;
+	uint64 timeMs = 3;
 }
 
 message EMPTY {	

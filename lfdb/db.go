@@ -3,6 +3,7 @@ package lfdb
 import (
 	"encoding/binary"
 	"fmt"
+	SNAP "github.com/LogRhythm/Winston/snappy"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
 	"time"
@@ -28,13 +29,14 @@ func NewDB(path string) DB {
 //Open the boltdb database
 func (d *DB) Open() (err error) {
 	if d.db == nil {
-		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Second})
+		//long long time but fail eventually
+		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Minute})
 	}
 	return err
 }
 
 //WriteBatch will write all supplied rows into a batch before exiting.
-func (d DB) WriteBatch(row ...Row) error {
+func (d DB) WriteBatch(rows ...Row) error {
 	err := d.db.Update(func(tx *bolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists([]byte("data"))
 		if err != nil {
@@ -45,13 +47,15 @@ func (d DB) WriteBatch(row ...Row) error {
 		if err != nil {
 			return err
 		}
-		for _, r := range row {
+
+		for _, r := range rows {
 			id, err := b.NextSequence()
 			if err != nil {
 				return err
 			}
 			key := U64ToBytes(id)
-			if err = b.Put(key, r.Data); err != nil {
+			//if we decide to change this we will have to support multiple format versions
+			if err = b.Put(key, SNAP.CompressBytes(r.Data)); err != nil {
 				return err
 			}
 			if err = tb.Put(key, U64ToBytes(uint64(r.Time.UnixNano()))); err != nil {
@@ -70,7 +74,8 @@ func (d DB) WriteKey(key string, data []byte, bucket string) error {
 		if err != nil {
 			return err
 		}
-		if err = b.Put([]byte(key), data); err != nil {
+		//if we decide to change this we will have to support multiple format versions
+		if err = b.Put([]byte(key), SNAP.CompressBytes(data)); err != nil {
 			return err
 		}
 		return nil
@@ -89,8 +94,12 @@ func (d DB) ReadKey(key string, bucket string) (value []byte, err error) {
 			log.Info("Bucket ", bucket, " does not exist")
 			return fmt.Errorf("Bucket does not exist: ", bucket)
 		}
-		v := b.Get([]byte(key))
-		log.Info("v ", string(v))
+		//if we decide to change this we will have to support multiple format versions
+		v, err := SNAP.DecompressBytes(b.Get([]byte(key)))
+		if nil != err {
+			log.Error("Failed to decompress value from key: ", key)
+			return err
+		}
 		value = make([]byte, len(v))
 		copy(value, v)
 		return nil

@@ -1,11 +1,11 @@
 package server
 
 import (
+	"encoding/binary"
 	LFDB "github.com/LogRhythm/Winston/lfdb"
 	pb "github.com/LogRhythm/Winston/pb"
 	log "github.com/cihub/seelog"
 	ENV "github.com/joho/godotenv"
-	"encoding/binary"
 	// "github.com/davecgh/go-spew/spew"
 	"fmt"
 	"github.com/tidwall/gjson"
@@ -13,9 +13,11 @@ import (
 	"google.golang.org/grpc"
 	"stablelib.com/v1/crypto/siphash"
 	// "google.golang.org/grpc/grpclog"
+	SNAP "github.com/LogRhythm/Winston/snappy"
 	"github.com/boltdb/bolt"
 	"io"
 	"net"
+	// "runtime"
 	"time"
 )
 
@@ -65,10 +67,12 @@ func (w Winston) Start() {
 
 type RowsBucketedByBucketAndDate []map[time.Time][]LFDB.Row
 
+const MAX_BUCKET_SIZE = 1024
+
 //Push data into winston db.
-func (w Winston) Push(stream pb.V1_PushServer) error {
+func (w Winston) Write(stream pb.V1_WriteServer) error {
 	var settings *pb.RepoSettings
-	bucketRows := make(RowsBucketedByBucketAndDate, 65536)
+	bucketRows := make(RowsBucketedByBucketAndDate, MAX_BUCKET_SIZE)
 
 	for {
 		in, err := stream.Recv()
@@ -85,6 +89,7 @@ func (w Winston) Push(stream pb.V1_PushServer) error {
 			return stream.SendAndClose(&pb.EMPTY{})
 
 		}
+
 		// spew.Dump(in)
 		if err != nil {
 			log.Error("transaction: ", err)
@@ -104,18 +109,28 @@ func (w Winston) Push(stream pb.V1_PushServer) error {
 
 		for _, r := range in.Rows {
 			bucket := uint64(0)
-			if settings.Buckets != 0 {
-				value := gjson.Get(string(r.Data), settings.HashField)
-				hash := siphash.Hash(0, 65536, []byte(value.String()))
-				bucket = hash % uint64(settings.Buckets)
-				// fmt.Println("buckets: ", settings.Buckets)
+			if settings.GroupByBuckets != 0 {
+				var value []byte
+				for _, field := range settings.GroupByFields {
+					value = append(value, []byte(gjson.Get(string(r.Data), field).String())...)
+				}
+				hash := siphash.Hash(0, MAX_BUCKET_SIZE, value)
+				bucket = hash % uint64(settings.GroupByBuckets)
 			}
-			// fmt.Println("hash: ", bucket)
 			var t time.Time
-			if r.Time == 0 {
-				t = time.Now()
+			if r.TimeMs != 0 {
+				t = msToTime(int64(r.TimeMs))
+			} else if len(settings.TimeField) != 0 && r.TimeMs == 0 {
+
+				timeValue := gjson.Get(string(r.Data), settings.TimeField).String()
+				t, err = time.Parse(time.RFC3339, timeValue)
+				if err != nil {
+					log.Error("Invalid timefield: ", settings.TimeField, " for repo: ", settings.Repo)
+					return fmt.Errorf("invalid time: ", timeValue, " in timefield: ", settings.TimeField, " error: ", err)
+				}
 			} else {
-				t = time.Unix(0, int64(r.Time)) //time in nanoseconds
+				//if no time set assume it's now
+				t = time.Now()
 			}
 
 			if bucketRows[bucket] == nil {
@@ -130,18 +145,23 @@ func (w Winston) Push(stream pb.V1_PushServer) error {
 	}
 }
 
-// func (s *routeGuideServer) ListFeatures(rect *pb.Rectangle, stream pb.RouteGuide_ListFeaturesServer) error {
-// 	for _, feature := range s.savedFeatures {
-// 		if inRange(feature.Location, rect) {
-// 			if err := stream.Send(feature); err != nil {
-// 				return err
-// 			}
-// 		}
-// 	}
-// 	return nil
-// }
+const (
+	millisPerSecond     = int64(time.Second / time.Millisecond)
+	nanosPerMillisecond = int64(time.Millisecond / time.Nanosecond)
+)
 
-func (w Winston) PullBucketByTime(pull *pb.PullBucket, stream pb.V1_PullBucketByTimeServer) error {
+func msToTime(msTime int64) time.Time {
+	return time.Unix(msTime/millisPerSecond,
+		(msTime%millisPerSecond)*nanosPerMillisecond)
+}
+
+const ReadBatchSize = 300
+
+func (w Winston) ReadByTime(read *pb.Read, stream pb.V1_ReadByTimeServer) error {
+	return fmt.Errorf("not implemented")
+}
+
+func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketByTimeServer) error {
 	if pull == nil {
 		return fmt.Errorf("Invalid request")
 	}
@@ -149,10 +169,12 @@ func (w Winston) PullBucketByTime(pull *pb.PullBucket, stream pb.V1_PullBucketBy
 	if err != nil {
 		return fmt.Errorf("Failed to get settings: ", err)
 	}
+	count := 0
 	repo := LFDB.NewRepo(settings.Repo)
-	err  = repo.ReadBucket(pull.BucketPath, func(tx *bolt.Tx)error {
+	err = repo.ReadBucket(fmt.Sprintf("%s/%s/%s", w.dataDir, pull.Repo, pull.BucketPath), func(tx *bolt.Tx) error {
+		rows := make([]*pb.Row, 0, ReadBatchSize)
 		b := tx.Bucket([]byte("data"))
-		count :=0
+
 		if b == nil {
 			return fmt.Errorf("Bucket does not exist")
 		}
@@ -160,23 +182,53 @@ func (w Winston) PullBucketByTime(pull *pb.PullBucket, stream pb.V1_PullBucketBy
 		if nil == tb {
 			return fmt.Errorf("Bucket doesn't exist")
 		}
-				tb.ForEach(func(key, v []byte) error {
+
+		tc := tb.Cursor()
+		bc := b.Cursor()
+		startTime := msToTime(int64(pull.StartTimeMs)).UnixNano()
+		endTime := msToTime(int64(pull.EndTimeMs)).UnixNano()
+		for k, v := tc.First(); k != nil; k, v = tc.Next() {
 
 			rt := binary.BigEndian.Uint64(v)
-			if rt >= pull.StartTime && rt <= pull.EndTime {
+
+			if rt >= uint64(startTime) && rt <= uint64(endTime) {
+				_, bv := bc.Seek(k)
+				if bv == nil {
+					log.Error("key: ", k, " was inl in repo: ", repo.Name)
+					continue
+				}
+				bv, err = SNAP.DecompressBytes(bv)
+				if err != nil {
+					return err
+				}
+				rows = append(rows, &pb.Row{TimeMs: rt, Data: bv})
+				if len(rows) >= ReadBatchSize {
+					err = stream.Send(&pb.ReadResponse{Repo: settings.Repo, Rows: rows})
+					if err != nil {
+						log.Error("send to client: ", err)
+						return err
+					}
+					// log.Info("foreach Rows: ", len(rows), " flushing")
+					rows = make([]*pb.Row, 0, ReadBatchSize)
+				}
 				count++
-				stream.Send(&pb.PullResponse{Repo: settings.Repo, Rows: []*pb.Row{
-					0: &pb.Row{Time: rt, Data: b.Get(key)},
-				}})
 			}
-			log.Info("Read ", count, " records from db")
-			return nil
-		})
+		}
+		if len(rows) > 0 {
+			log.Info("Rows: ", len(rows), " flushing")
+			log.Flush()
+			msg := &pb.ReadResponse{Repo: settings.Repo, Rows: rows}
+			err = stream.Send(msg)
+			if err != nil {
+				log.Error("send to client: ", err)
+			}
+		}
 		return nil
-
 	})
-	return err
+	log.Info("FINISHING")
 
+	log.Info("Read ", count, " records from db")
+	return err
 }
 
 func (w Winston) getSettingsForRepo(repo string) (settings *pb.RepoSettings, err error) {
@@ -209,7 +261,7 @@ func (w Winston) UpsertRepo(ctx context.Context, settings *pb.RepoSettings) (*pb
 	if settings == nil || len(settings.Repo) == 0 {
 		return nil, fmt.Errorf("failed to set repo name")
 	}
-	if settings.Buckets > 1024 {
+	if settings.GroupByBuckets > MAX_BUCKET_SIZE {
 		return nil, fmt.Errorf("Bucket size set to greater then 1024")
 	}
 	data, err := settings.Marshal()
