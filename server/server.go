@@ -145,6 +145,10 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 	}
 }
 
+func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServer) error {
+	return fmt.Errorf("not implemented")
+}
+
 const (
 	millisPerSecond     = int64(time.Second / time.Millisecond)
 	nanosPerMillisecond = int64(time.Millisecond / time.Nanosecond)

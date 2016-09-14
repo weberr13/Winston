@@ -13,7 +13,7 @@ service V1 {
   
   rpc Write(stream WriteRequest) returns (EMPTY){}
 
-  rpc GetBuckets(BucketsRequest) return (stream Bucket){}
+  rpc GetBuckets(BucketsRequest) returns (stream Bucket){}
   rpc ReadBucketByTime(ReadBucket) returns (stream ReadResponse){}
   rpc ReadByTime(Read) returns (stream ReadResponse){}
 }
