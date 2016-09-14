@@ -37,8 +37,9 @@ message ReadResponse {
 }
 
 message BucketsRequest {
-	uint64 startTimeMs = 1;
-	uint64 endTimeMs = 2;
+	string repo = 1;
+	uint64 startTimeMs = 2;
+	uint64 endTimeMs = 3;
 }
 
 message Bucket {

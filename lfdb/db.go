@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+var DB_EXT = ".bolt"
+
 //DB is the data structure for storing our database (boltdb)
 type DB struct {
 	Path string

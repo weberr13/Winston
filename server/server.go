@@ -2,22 +2,19 @@ package server
 
 import (
 	"encoding/binary"
+	"fmt"
 	LFDB "github.com/LogRhythm/Winston/lfdb"
 	pb "github.com/LogRhythm/Winston/pb"
+	SNAP "github.com/LogRhythm/Winston/snappy"
+	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
 	ENV "github.com/joho/godotenv"
-	// "github.com/davecgh/go-spew/spew"
-	"fmt"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
-	"stablelib.com/v1/crypto/siphash"
-	// "google.golang.org/grpc/grpclog"
-	SNAP "github.com/LogRhythm/Winston/snappy"
-	"github.com/boltdb/bolt"
 	"io"
 	"net"
-	// "runtime"
+	"stablelib.com/v1/crypto/siphash"
 	"time"
 )
 
@@ -67,7 +64,12 @@ func (w Winston) Start() {
 
 type RowsBucketedByBucketAndDate []map[time.Time][]LFDB.Row
 
-const MAX_BUCKET_SIZE = 1024
+const (
+	MAX_BUCKET_SIZE = 1024
+)
+
+//ERR_INVALID_REPO_NAME ...
+var ERR_INVALID_REPO_NAME = fmt.Errorf("empty repo name")
 
 //Push data into winston db.
 func (w Winston) Write(stream pb.V1_WriteServer) error {
@@ -89,14 +91,12 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 			return stream.SendAndClose(&pb.EMPTY{})
 
 		}
-
-		// spew.Dump(in)
 		if err != nil {
 			log.Error("transaction: ", err)
 			return err
 		}
 		if len(in.Repo) == 0 {
-			return fmt.Errorf("empty repo name")
+			return ERR_INVALID_REPO_NAME
 		}
 
 		if settings == nil {
@@ -146,7 +146,16 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 }
 
 func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServer) error {
-	return fmt.Errorf("not implemented")
+	settings, err := w.getSettingsForRepo(req.Repo)
+	if err != nil {
+		return fmt.Errorf("failed to get settings for repo: ", err)
+	}
+	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
+	repo.GetBucketsCallFunc(msToTime(int64(req.StartTimeMs)), msToTime(int64(req.EndTimeMs)), func(path string) error {
+		log.Info("Calling send: ", path)
+		return stream.Send(&pb.Bucket{Path: path})
+	})
+	return nil
 }
 
 const (
@@ -174,7 +183,7 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 		return fmt.Errorf("failed to get settings: ", err)
 	}
 	count := 0
-	repo := LFDB.NewRepo(settings.Repo)
+	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
 	err = repo.ReadBucket(fmt.Sprintf("%s/%s/%s", w.dataDir, pull.Repo, pull.BucketPath), func(tx *bolt.Tx) error {
 		rows := make([]*pb.Row, 0, ReadBatchSize)
 		b := tx.Bucket([]byte("data"))
@@ -198,7 +207,7 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 			if rt >= uint64(startTime) && rt <= uint64(endTime) {
 				_, bv := bc.Seek(k)
 				if bv == nil {
-					log.Error("key: ", k, " repo: ", repo.Name)
+					log.Error("key: ", k, " repo: ", settings.Repo)
 					continue
 				}
 				bv, err = SNAP.DecompressBytes(bv)
@@ -284,7 +293,7 @@ func (w Winston) openSettingsDB() (db LFDB.DB, err error) {
 
 //WriteToDB writes a slice of rows to disk.
 func (w Winston) WriteToDB(settings pb.RepoSettings, bucket int, t time.Time, rows []LFDB.Row) error {
-	repo := LFDB.NewRepo(settings.Repo)
+	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
 	db, err := repo.CreateBucketIfNotExist(t, w.dataDir, bucket)
 
 	if nil != err {
