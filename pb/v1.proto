@@ -12,6 +12,8 @@ service V1 {
   rpc UpsertRepo(RepoSettings) returns (EMPTY){}
   
   rpc Write(stream WriteRequest) returns (EMPTY){}
+
+  rpc GetBuckets(BucketsRequest) return (stream Bucket){}
   rpc ReadBucketByTime(ReadBucket) returns (stream ReadResponse){}
   rpc ReadByTime(Read) returns (stream ReadResponse){}
 }
@@ -32,6 +34,15 @@ message Read {
 message ReadResponse {
 	string repo = 1;
 	repeated Row rows = 2;
+}
+
+message BucketsRequest {
+	uint64 startTimeMs = 1;
+	uint64 endTimeMs = 2;
+}
+
+message Bucket {
+	string path = 1;
 }
 
 message RepoSettings {

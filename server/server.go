@@ -125,7 +125,7 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 				timeValue := gjson.Get(string(r.Data), settings.TimeField).String()
 				t, err = time.Parse(time.RFC3339, timeValue)
 				if err != nil {
-					log.Error("Invalid timefield: ", settings.TimeField, " for repo: ", settings.Repo)
+					log.Error("invalid timefield: ", settings.TimeField, " for repo: ", settings.Repo, " error: ", err)
 					return fmt.Errorf("invalid time: ", timeValue, " in timefield: ", settings.TimeField, " error: ", err)
 				}
 			} else {
@@ -163,11 +163,11 @@ func (w Winston) ReadByTime(read *pb.Read, stream pb.V1_ReadByTimeServer) error 
 
 func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketByTimeServer) error {
 	if pull == nil {
-		return fmt.Errorf("Invalid request")
+		return fmt.Errorf("invalid request")
 	}
 	settings, err := w.getSettingsForRepo(pull.Repo)
 	if err != nil {
-		return fmt.Errorf("Failed to get settings: ", err)
+		return fmt.Errorf("failed to get settings: ", err)
 	}
 	count := 0
 	repo := LFDB.NewRepo(settings.Repo)
@@ -176,11 +176,11 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 		b := tx.Bucket([]byte("data"))
 
 		if b == nil {
-			return fmt.Errorf("Bucket does not exist")
+			return fmt.Errorf("data bucket does not exist")
 		}
 		tb := b.Bucket([]byte("time"))
 		if nil == tb {
-			return fmt.Errorf("Bucket doesn't exist")
+			return fmt.Errorf("time bucket doesn't exist")
 		}
 
 		tc := tb.Cursor()
@@ -194,7 +194,7 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 			if rt >= uint64(startTime) && rt <= uint64(endTime) {
 				_, bv := bc.Seek(k)
 				if bv == nil {
-					log.Error("key: ", k, " was inl in repo: ", repo.Name)
+					log.Error("key: ", k, " repo: ", repo.Name)
 					continue
 				}
 				bv, err = SNAP.DecompressBytes(bv)
@@ -215,8 +215,7 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 			}
 		}
 		if len(rows) > 0 {
-			log.Info("Rows: ", len(rows), " flushing")
-			log.Flush()
+			log.Info("rows: ", len(rows), " flushing")
 			msg := &pb.ReadResponse{Repo: settings.Repo, Rows: rows}
 			err = stream.Send(msg)
 			if err != nil {
@@ -225,9 +224,8 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 		}
 		return nil
 	})
-	log.Info("FINISHING")
 
-	log.Info("Read ", count, " records from db")
+	log.Info("repo: ", settings.Repo, " Read ", count, " records")
 	return err
 }
 
@@ -255,21 +253,21 @@ func (w Winston) UpsertRepo(ctx context.Context, settings *pb.RepoSettings) (*pb
 	db, err := w.openSettingsDB()
 	defer db.Close()
 	if err != nil {
-		log.Error("Failed to open settings db: ", err)
+		log.Error("failed to open settings db: ", err)
 		return nil, err
 	}
 	if settings == nil || len(settings.Repo) == 0 {
 		return nil, fmt.Errorf("failed to set repo name")
 	}
 	if settings.GroupByBuckets > MAX_BUCKET_SIZE {
-		return nil, fmt.Errorf("Bucket size set to greater then 1024")
+		return nil, fmt.Errorf("bucket size set to greater then 1024")
 	}
 	data, err := settings.Marshal()
 	if nil != err {
-		log.Error("Failed to marshal conf: ", err)
+		log.Error("failed to marshal conf: ", err)
 		return nil, err
 	}
-	log.Info("Updating repo: ", settings.Repo, " with values: ", string(data))
+	log.Info("updating settings for repo: ", settings.Repo, " with values: ", string(data))
 	err = db.WriteKey(settings.Repo, data, settingsBucket)
 	return &pb.EMPTY{}, err
 }
@@ -286,7 +284,7 @@ func (w Winston) WriteToDB(settings pb.RepoSettings, bucket int, t time.Time, ro
 	db, err := repo.CreateBucketIfNotExist(t, w.dataDir, bucket)
 
 	if nil != err {
-		log.Error("Failed to create bucket for repo: ", settings.Repo)
+		log.Error("failed to create bucket for repo: ", settings.Repo)
 		return err
 	}
 	err = db.Open()
