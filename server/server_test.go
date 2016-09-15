@@ -139,14 +139,40 @@ func TestWinstonServerWrite(t *testing.T) {
 			So(err, ShouldBeNil)
 		})
 		Convey("Get Buckets and Read Records", func() {
-			buckets := getBuckets(client, WRITE_REPO)
+			startTime := time.Now().Add(-1 * time.Hour)
+			endTime := time.Now()
+			buckets := getBuckets(client, WRITE_REPO, startTime, endTime)
 			So(len(buckets), ShouldEqual, 8)
-			responseBuckets, err := readAllBuckets(buckets, client, WRITE_REPO, time.Now().Add(-1*time.Minute), time.Now())
+			responseBuckets, err := readAllBuckets(buckets, client, WRITE_REPO, startTime, endTime)
 			So(err, ShouldBeNil)
 			So(len(responseBuckets), ShouldEqual, 8)
 			for _, b := range responseBuckets {
 				So(len(b), ShouldEqual, 1)
-				So(len(b[0].Rows), ShouldBeBetweenOrEqual, 15, 35)
+				So(len(b[0].Rows), ShouldBeBetweenOrEqual, 10, 50)
+
+			}
+		})
+
+		Convey("Get Buckets and Read Records for yesterday should return 0 buckets and 0 records", func() {
+			startTime := time.Now().Add(-48 * time.Hour)
+			endTime := time.Now().Add(-47 * time.Hour)
+			buckets := getBuckets(client, WRITE_REPO, startTime, endTime)
+			So(len(buckets), ShouldEqual, 0)
+			responseBuckets, err := readAllBuckets(buckets, client, WRITE_REPO, startTime, endTime)
+			So(err, ShouldBeNil)
+			So(len(responseBuckets), ShouldEqual, 0)
+		})
+
+		Convey("Get Buckets for last 48 hours, look for data outside of range", func() {
+			startTime := time.Now().Add(-48 * time.Hour)
+			endTime := time.Now()
+			buckets := getBuckets(client, WRITE_REPO, startTime, endTime)
+			So(len(buckets), ShouldEqual, 8)
+			responseBuckets, err := readAllBuckets(buckets, client, WRITE_REPO, startTime, endTime.Add(-24*time.Hour))
+			So(err, ShouldBeNil)
+			So(len(responseBuckets), ShouldEqual, 8)
+			for _, b := range responseBuckets {
+				So(len(b), ShouldEqual, 0)
 			}
 		})
 	})
@@ -208,11 +234,11 @@ func DeleteOldTmpFiles() {
 
 }
 
-func getBuckets(client pb.V1Client, repo string) []string {
+func getBuckets(client pb.V1Client, repo string, startTime time.Time, endTime time.Time) []string {
 	stream, err := client.GetBuckets(context.Background(), &pb.BucketsRequest{
 		Repo:        repo,
-		StartTimeMs: uint64(time.Now().Add(-72*time.Hour).UnixNano() / int64(time.Millisecond)),
-		EndTimeMs:   uint64(time.Now().UnixNano() / int64(time.Millisecond)),
+		StartTimeMs: uint64(startTime.UnixNano() / int64(time.Millisecond)),
+		EndTimeMs:   uint64(endTime.UnixNano() / int64(time.Millisecond)),
 	})
 	if err != nil {
 		panic(fmt.Sprintf("get buckets: %v", err))

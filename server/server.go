@@ -161,10 +161,17 @@ func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServe
 		return fmt.Errorf("failed to get settings for repo: ", err)
 	}
 	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
-	repo.GetBucketsCallFunc(msToTime(int64(req.StartTimeMs)), msToTime(int64(req.EndTimeMs)), func(path string) error {
+	startTime := TimeRoundToDay(msToTime(int64(req.StartTimeMs)))
+	endTime := TimeRoundToDay(msToTime(int64(req.EndTimeMs)))
+	repo.GetBucketsCallFunc(startTime, endTime, func(path string) error {
 		return stream.Send(&pb.Bucket{Path: path})
 	})
 	return nil
+}
+
+//TimeRoundToDay rounds a time object to the current day
+func TimeRoundToDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
 }
 
 const (
@@ -174,7 +181,7 @@ const (
 
 func msToTime(msTime int64) time.Time {
 	return time.Unix(msTime/millisPerSecond,
-		(msTime%millisPerSecond)*nanosPerMillisecond)
+		(msTime%millisPerSecond)*nanosPerMillisecond).UTC()
 }
 
 const ReadBatchSize = 300

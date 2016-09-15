@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
+	// "github.com/davecgh/go-spew/spew"
 	"io/ioutil"
 	"os"
 	"path/filepath"
@@ -55,12 +56,17 @@ func (r Repo) GetBucketsCallFunc(start time.Time, end time.Time, anon func(bucke
 	if err != nil {
 		return err
 	}
+	if start.After(end) {
+		return fmt.Errorf("Start time is after end time")
+	}
 	for _, f := range files {
 		if !f.IsDir() {
 			continue
 		}
 		fullPath := fmt.Sprintf("%s/%s", r.repoDir, f.Name())
 		log.Debug("PATH: ", fullPath)
+		log.Info("START: ", start)
+		log.Info("END: ", end)
 		t, err := time.Parse(MonthDayYear, f.Name())
 		if err != nil {
 			//ignore folders that aren't ours
