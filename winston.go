@@ -21,11 +21,13 @@ func main() {
 	log.Info("starting winston")
 
 	death := death.NewDeath(SYS.SIGINT, SYS.SIGTERM)
+
+	//http endpoint for profiling the code
 	go func() {
 		http.ListenAndServe("localhost:6060", nil)
 	}()
 
-	w := server.NewWinston()
+	w := server.NewWinston(server.NewWinstonConf())
 	w.Start()
 	death.WaitForDeath(w)
 	log.Info("shutdown")

@@ -8,12 +8,12 @@ import (
 	SNAP "github.com/LogRhythm/Winston/snappy"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
-	ENV "github.com/joho/godotenv"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"io"
 	"net"
+	"os"
 	"stablelib.com/v1/crypto/siphash"
 	"time"
 )
@@ -26,19 +26,16 @@ type Winston struct {
 	RepoSettingPath string
 }
 
-const settingsBucket = "v1_settings"
+const SETTINGS_BUCKET = "v1_settings"
 
 //NewWinston creates the winston server
-func NewWinston() Winston {
+func NewWinston(conf WinstonConf) Winston {
 	grpc.EnableTracing = true
-	env, err := ENV.Read()
-	if nil != err {
-		panic("Failed to load environment variables, check your .env file in your current working directory.")
-	}
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", 5001))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%v", conf.Port))
 	if err != nil {
 		panic(fmt.Sprintf("failed to listen: %v", err))
 	}
+	log.Info("Winston listening on: ", lis.Addr().String())
 	var opts []grpc.ServerOption
 	// if *tls {
 	// 	creds, err := credentials.NewServerTLSFromFile(*certFile, *keyFile)
@@ -47,12 +44,17 @@ func NewWinston() Winston {
 	// 	}
 	// 	opts = []grpc.ServerOption{grpc.Creds(creds)}
 	// }
-	w := Winston{server: grpc.NewServer(opts...), listen: lis, dataDir: env["DATA_DIR"]}
-
+	w := Winston{server: grpc.NewServer(opts...), listen: lis, dataDir: conf.DataDir}
+	if _, err := os.Stat(w.dataDir); os.IsNotExist(err) {
+		err := os.Mkdir(w.dataDir, 0600)
+		if err != nil {
+			panic(fmt.Sprintf("failed to make DATA_DIR: %s for winston %v", w.dataDir, err))
+		}
+	}
 	if len(w.dataDir) == 0 {
 		panic("No DATA_DIR set in your .env file")
 	}
-	w.RepoSettingPath = fmt.Sprintf("%s/settings.blt", w.dataDir)
+	w.RepoSettingPath = fmt.Sprintf("%s/settings%s", w.dataDir, LFDB.DB_EXT)
 	pb.RegisterV1Server(w.server, w)
 	return w
 }
@@ -60,6 +62,11 @@ func NewWinston() Winston {
 //Start ...
 func (w Winston) Start() {
 	go w.server.Serve(w.listen)
+}
+
+//DeleteRepo removes the repository from the file system and from the settings
+func (w Winston) DeleteRepo(repo string) error {
+	return fmt.Errorf("Not implemented")
 }
 
 type RowsBucketedByBucketAndDate []map[time.Time][]LFDB.Row
@@ -136,7 +143,9 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 			if bucketRows[bucket] == nil {
 				bucketRows[bucket] = make(map[time.Time][]LFDB.Row, 0)
 			}
-			mapTime := t.Truncate(24 * time.Hour)
+			//truncate to day
+			mapTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+
 			if bucketRows[bucket][mapTime] == nil {
 				bucketRows[bucket][mapTime] = make([]LFDB.Row, 0)
 			}
@@ -145,6 +154,7 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 	}
 }
 
+//GetBuckets returns you a stream of buckets for a single repository
 func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServer) error {
 	settings, err := w.getSettingsForRepo(req.Repo)
 	if err != nil {
@@ -152,7 +162,6 @@ func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServe
 	}
 	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
 	repo.GetBucketsCallFunc(msToTime(int64(req.StartTimeMs)), msToTime(int64(req.EndTimeMs)), func(path string) error {
-		log.Info("Calling send: ", path)
 		return stream.Send(&pb.Bucket{Path: path})
 	})
 	return nil
@@ -186,12 +195,12 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
 	err = repo.ReadBucket(fmt.Sprintf("%s/%s/%s", w.dataDir, pull.Repo, pull.BucketPath), func(tx *bolt.Tx) error {
 		rows := make([]*pb.Row, 0, ReadBatchSize)
-		b := tx.Bucket([]byte("data"))
+		b := tx.Bucket(LFDB.BUCKET_DATA)
 
 		if b == nil {
 			return fmt.Errorf("data bucket does not exist")
 		}
-		tb := b.Bucket([]byte("time"))
+		tb := b.Bucket(LFDB.BUCKET_TIME)
 		if nil == tb {
 			return fmt.Errorf("time bucket doesn't exist")
 		}
@@ -244,13 +253,13 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 
 func (w Winston) getSettingsForRepo(repo string) (settings *pb.RepoSettings, err error) {
 	settings = &pb.RepoSettings{}
-	db, err := w.openSettingsDB()
+	db, err := w.openSettingsDBReadOnly()
 	defer db.Close()
 	if err != nil {
 		log.Error("Failed to open settings db: ", err)
 		return settings, err
 	}
-	bytes, err := db.ReadKey(repo, settingsBucket)
+	bytes, err := db.ReadKey(repo, SETTINGS_BUCKET)
 	if err != nil {
 		return settings, err
 	}
@@ -280,14 +289,21 @@ func (w Winston) UpsertRepo(ctx context.Context, settings *pb.RepoSettings) (*pb
 		log.Error("failed to marshal conf: ", err)
 		return nil, err
 	}
-	log.Info("updating settings for repo: ", settings.Repo, " with values: ", string(data))
-	err = db.WriteKey(settings.Repo, data, settingsBucket)
+	log.Info("updating settings for repo: ", settings.Repo)
+	err = db.WriteKey(settings.Repo, data, SETTINGS_BUCKET)
 	return &pb.EMPTY{}, err
 }
 
 func (w Winston) openSettingsDB() (db LFDB.DB, err error) {
 	db = LFDB.NewDB(w.RepoSettingPath)
 	err = db.Open()
+	return db, err
+}
+
+//openSettingsDBReadOnly will open  the db using the read only methods in boltdb
+func (w Winston) openSettingsDBReadOnly() (db LFDB.DB, err error) {
+	db = LFDB.NewDB(w.RepoSettingPath)
+	err = db.OpenReadOnly()
 	return db, err
 }
 

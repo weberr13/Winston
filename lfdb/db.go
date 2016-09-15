@@ -9,7 +9,12 @@ import (
 	"time"
 )
 
-var DB_EXT = ".bolt"
+const (
+	DB_EXT = ".bolt"
+)
+
+var BUCKET_DATA = []byte("data")
+var BUCKET_TIME = []byte("time")
 
 //DB is the data structure for storing our database (boltdb)
 type DB struct {
@@ -37,15 +42,24 @@ func (d *DB) Open() (err error) {
 	return err
 }
 
+//OpenReadOnly sets the option to read the boltdb with readonly permissions
+func (d *DB) OpenReadOnly() (err error) {
+	if d.db == nil {
+		//long long time but fail eventually
+		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Minute, ReadOnly: true})
+	}
+	return err
+}
+
 //WriteBatch will write all supplied rows into a batch before exiting.
 func (d DB) WriteBatch(rows ...Row) error {
 	err := d.db.Update(func(tx *bolt.Tx) error {
-		b, err := tx.CreateBucketIfNotExists([]byte("data"))
+		b, err := tx.CreateBucketIfNotExists(BUCKET_DATA)
 		if err != nil {
 			return err
 		}
 		//create sub bucket for time
-		tb, err := b.CreateBucketIfNotExists([]byte("time"))
+		tb, err := b.CreateBucketIfNotExists(BUCKET_TIME)
 		if err != nil {
 			return err
 		}
@@ -77,6 +91,7 @@ func (d DB) WriteKey(key string, data []byte, bucket string) error {
 			return err
 		}
 		//if we decide to change this we will have to support multiple format versions
+		log.Info("DATA: ", string(data))
 		if err = b.Put([]byte(key), SNAP.CompressBytes(data)); err != nil {
 			return err
 		}
@@ -94,7 +109,7 @@ func (d DB) ReadKey(key string, bucket string) (value []byte, err error) {
 		b := tx.Bucket([]byte(bucket))
 		if b == nil {
 			log.Info("Bucket ", bucket, " does not exist")
-			return fmt.Errorf("Bucket does not exist: ", bucket)
+			return fmt.Errorf("Bucket does not exist: %v", bucket)
 		}
 		//if we decide to change this we will have to support multiple format versions
 		v, err := SNAP.DecompressBytes(b.Get([]byte(key)))
