@@ -11,7 +11,6 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 )
@@ -225,7 +224,6 @@ func DeleteOldTmpFiles() {
 	}
 
 	for _, f := range files {
-		log.Info(f)
 		err := os.RemoveAll(f)
 		if err != nil {
 			log.Error("Failed to remove temp dir: ", f, " error ", err)
