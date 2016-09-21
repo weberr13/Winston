@@ -229,7 +229,6 @@ func DeleteOldTmpFiles() {
 			log.Error("Failed to remove temp dir: ", f, " error ", err)
 		}
 	}
-
 }
 
 func getBuckets(client pb.V1Client, repo string, startTime time.Time, endTime time.Time) []string {
@@ -297,7 +296,6 @@ func TempConf() WinstonConf {
 	}
 	c := WinstonConf{DataDir: dir, Port: 5777} //0 port makes it random available port
 	return c
-
 }
 
 func NewConnAndClient(port int) (*grpc.ClientConn, pb.V1Client) {

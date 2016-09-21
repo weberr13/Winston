@@ -16,9 +16,7 @@ service V1 {
   rpc GetBuckets(BucketsRequest) returns (stream Bucket){}
   rpc ReadBucketByTime(ReadBucket) returns (stream ReadResponse){}
   rpc ReadByTime(Read) returns (stream ReadResponse){}
-  rpc DeleteRepo()
 }
-
 
 message ReadBucket {
 	string repo = 1;

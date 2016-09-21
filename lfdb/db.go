@@ -6,6 +6,9 @@ import (
 	SNAP "github.com/LogRhythm/Winston/snappy"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
+	"io"
+	pb "github.com/LogRhythm/Winston/pb"
+	// TIME "github.com/LogRhythm/Winston/time"
 	"time"
 )
 
@@ -69,12 +72,13 @@ func (d DB) WriteBatch(rows ...Row) error {
 			if err != nil {
 				return err
 			}
-			key := U64ToBytes(id)
+			key := U64ToPaddedBytes(id)
 			//if we decide to change this we will have to support multiple format versions
 			if err = b.Put(key, SNAP.CompressBytes(r.Data)); err != nil {
 				return err
 			}
-			if err = tb.Put(key, U64ToBytes(uint64(r.Time.UnixNano()))); err != nil {
+			//put into time bucket
+			if err = tb.Put(key, U64ToPaddedBytes(uint64(r.Time.UnixNano()))); err != nil {
 				return err
 			}
 		}
@@ -91,7 +95,6 @@ func (d DB) WriteKey(key string, data []byte, bucket string) error {
 			return err
 		}
 		//if we decide to change this we will have to support multiple format versions
-		log.Info("DATA: ", string(data))
 		if err = b.Put([]byte(key), SNAP.CompressBytes(data)); err != nil {
 			return err
 		}
@@ -100,8 +103,60 @@ func (d DB) WriteKey(key string, data []byte, bucket string) error {
 	return err
 }
 
+//ReadView allows you to write your own read only bolt function.
 func (d DB) ReadView(f func(tx *bolt.Tx) error) error {
 	return d.db.View(f)
+}
+
+//ReadN will read n number of records and return
+func (d DB) ReadN(startPosition uint64, n int, startTimeMS int64, endTimeMS int64) (rows []*pb.Row, position uint64, err error) {
+	if startPosition < 0 {
+		return rows, position, fmt.Errorf("negative start position")
+	}
+	rows = make([]*pb.Row, 0, n)
+	finished := false
+	err = d.ReadView(func(tx *bolt.Tx) error {
+		b := tx.Bucket(BUCKET_DATA)
+
+		if b == nil {
+			return fmt.Errorf("data bucket does not exist")
+		}
+		tb := b.Bucket(BUCKET_TIME)
+		if nil == tb {
+			return fmt.Errorf("time bucket doesn't exist")
+		}
+
+		tc := tb.Cursor()
+		bc := b.Cursor()
+		for k, v := tc.Seek(U64ToPaddedBytes(startPosition)); k != nil; k, v = tc.Next() {
+			position = binary.BigEndian.Uint64(k)
+			rt := binary.BigEndian.Uint64(v)
+			if rt >= uint64(startTimeMS) && rt <= uint64(endTimeMS) {
+
+				n--
+				_, bv := bc.Seek(k)
+				if bv == nil {
+					continue
+				}
+				value, err := SNAP.DecompressBytes(bv)
+				if err != nil {
+					return err
+				}
+
+				rows = append(rows, &pb.Row{TimeMs: rt, Data: value})
+				if n == 0 {
+					return nil
+				}
+			}
+		}
+		finished = true
+		return nil
+	})
+	if finished {
+		err = io.EOF
+	}
+	return rows, position, err
+
 }
 
 func (d DB) ReadKey(key string, bucket string) (value []byte, err error) {
@@ -126,11 +181,12 @@ func (d DB) ReadKey(key string, bucket string) (value []byte, err error) {
 }
 
 //U64ToBytes will convert any unt64 into a padding BigEndian set of bytes (8bytes)
-func U64ToBytes(v uint64) []byte {
+func U64ToPaddedBytes(v uint64) []byte {
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, v)
 	return b
 }
+
 
 //Close ...
 func (d DB) Close() error {

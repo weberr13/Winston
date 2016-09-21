@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
+	pb "github.com/LogRhythm/Winston/pb"
 	// "github.com/davecgh/go-spew/spew"
 	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -65,8 +67,8 @@ func (r Repo) GetBucketsCallFunc(start time.Time, end time.Time, anon func(bucke
 		}
 		fullPath := fmt.Sprintf("%s/%s", r.repoDir, f.Name())
 		log.Debug("PATH: ", fullPath)
-		log.Info("START: ", start)
-		log.Info("END: ", end)
+		log.Debug("START: ", start)
+		log.Debug("END: ", end)
 		t, err := time.Parse(MonthDayYear, f.Name())
 		if err != nil {
 			//ignore folders that aren't ours
@@ -85,7 +87,8 @@ func (r Repo) GetBucketsCallFunc(start time.Time, end time.Time, anon func(bucke
 
 //ReadBucket will read a single bucket calling a function with a transaction
 func (r Repo) ReadBucket(bucketPath string, f func(tx *bolt.Tx) error) error {
-	db := NewDB(bucketPath)
+	fullPath := fmt.Sprintf("%s/%s", r.repoDir, bucketPath)
+	db := NewDB(fullPath)
 	err := db.Open()
 	defer db.Close()
 	if err != nil {
@@ -94,6 +97,33 @@ func (r Repo) ReadBucket(bucketPath string, f func(tx *bolt.Tx) error) error {
 	return db.ReadView(f)
 }
 
+func (r Repo) ReadPartition(bucketPath string,readBatchSize int, startTimeMS int64, endTimeMS int64, f func(rows []*pb.Row)error) error {
+	fullPath := fmt.Sprintf("%s/%s", r.repoDir, bucketPath)
+	db := NewDB(fullPath)
+	err := db.OpenReadOnly()
+	defer db.Close()
+	if err != nil {
+		return err
+	}
+	rows := make([]*pb.Row, 0, readBatchSize)
+	position := uint64(0)
+	for {
+	rows, position, err = db.ReadN(position,readBatchSize, startTimeMS, endTimeMS)
+	if err == io.EOF {
+		log.Debug("Finished read bucket by time request")
+		break
+	}
+	if err != nil {
+		return err
+	}
+
+	err = f(rows)
+	if err != nil {
+		return err
+	}
+	}
+	return f(rows)
+} 
 //CreateBucketIfNotExist ...
 func (r Repo) CreateBucketIfNotExist(t time.Time, basePath string, bucket int) (db DB, err error) {
 	date := t.Format(MonthDayYear)
