@@ -2,12 +2,12 @@ package lfdb
 
 import (
 	"fmt"
+	pb "github.com/LogRhythm/Winston/pb"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
-	pb "github.com/LogRhythm/Winston/pb"
 	// "github.com/davecgh/go-spew/spew"
-	"io/ioutil"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -54,13 +54,14 @@ func (r Repo) getDateBucketCallFunc(path string, anon func(bucket string) error)
 
 //GetBucketsCallFunc will call an function for every bucket it finds.
 func (r Repo) GetBucketsCallFunc(start time.Time, end time.Time, anon func(bucket string) error) error {
+	if start.After(end) {
+		return fmt.Errorf("Start time is after end time")
+	}
 	files, err := ioutil.ReadDir(r.repoDir)
 	if err != nil {
 		return err
 	}
-	if start.After(end) {
-		return fmt.Errorf("Start time is after end time")
-	}
+
 	for _, f := range files {
 		if !f.IsDir() {
 			continue
@@ -97,7 +98,7 @@ func (r Repo) ReadBucket(bucketPath string, f func(tx *bolt.Tx) error) error {
 	return db.ReadView(f)
 }
 
-func (r Repo) ReadPartition(bucketPath string,readBatchSize int, startTimeMS int64, endTimeMS int64, f func(rows []*pb.Row)error) error {
+func (r Repo) ReadPartition(bucketPath string, readBatchSize int, startTimeMS int64, endTimeMS int64, f func(rows []*pb.Row) error) error {
 	fullPath := fmt.Sprintf("%s/%s", r.repoDir, bucketPath)
 	db := NewDB(fullPath)
 	rows := make([]*pb.Row, 0, readBatchSize)
@@ -108,8 +109,8 @@ func (r Repo) ReadPartition(bucketPath string,readBatchSize int, startTimeMS int
 	defer db.Close()
 	position := uint64(0)
 	for {
-		
-		rows, position, err = db.ReadN(position,readBatchSize, startTimeMS, endTimeMS)
+
+		rows, position, err = db.ReadN(position, readBatchSize, startTimeMS, endTimeMS)
 
 		if err == io.EOF {
 			log.Info("Finished read bucket by time request")
@@ -118,7 +119,6 @@ func (r Repo) ReadPartition(bucketPath string,readBatchSize int, startTimeMS int
 		if err != nil {
 			return err
 		}
-
 
 		err = f(rows)
 		if err != nil {
@@ -129,7 +129,8 @@ func (r Repo) ReadPartition(bucketPath string,readBatchSize int, startTimeMS int
 		}
 	}
 	return f(rows)
-} 
+}
+
 //CreateBucketIfNotExist ...
 func (r Repo) CreateBucketIfNotExist(t time.Time, basePath string, bucket int) (db DB, err error) {
 	date := t.Format(MonthDayYear)

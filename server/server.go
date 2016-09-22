@@ -142,7 +142,7 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 				bucketRows[bucket] = make(map[time.Time][]LFDB.Row, 0)
 			}
 			//truncate to day
-			mapTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+			mapTime := TIME.TimeRoundToDay(t)
 
 			if bucketRows[bucket][mapTime] == nil {
 				bucketRows[bucket][mapTime] = make([]LFDB.Row, 0)
