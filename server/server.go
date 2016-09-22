@@ -167,27 +167,26 @@ func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServe
 	return nil
 }
 
-
 const ReadBatchSize = 500
 
 func (w Winston) ReadByTime(read *pb.Read, stream pb.V1_ReadByTimeServer) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketByTimeServer) error {
-	if pull == nil {
-		return fmt.Errorf("invalid request")
+func (w Winston) ReadBucketByTime(read *pb.ReadBucket, stream pb.V1_ReadBucketByTimeServer) error {
+	if read == nil {
+		return fmt.Errorf("invalid read request")
 	}
-	settings, err := w.getSettingsForRepo(pull.Repo)
+	settings, err := w.getSettingsForRepo(read.Repo)
 	if err != nil {
 		return fmt.Errorf("failed to get settings: ", err)
 	}
 	count := 0
 	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
-	log.Info("PULL: ", pull)
-	startTime := TIME.MSToTime(int64(pull.StartTimeMs))
-	endTime := TIME.MSToTime(int64(pull.EndTimeMs))
-	err = repo.ReadPartition(pull.BucketPath, ReadBatchSize, startTime.UnixNano(), endTime.UnixNano(), func(rows []*pb.Row) error{
+	log.Info("Read Request: ", read)
+	startTime := TIME.MSToTime(int64(read.StartTimeMs))
+	endTime := TIME.MSToTime(int64(read.EndTimeMs))
+	err = repo.ReadPartition(read.BucketPath, ReadBatchSize, startTime.UnixNano(), endTime.UnixNano(), func(rows []*pb.Row) error {
 		if len(rows) > 0 {
 			count += len(rows)
 			msg := &pb.ReadResponse{Repo: settings.Repo, Rows: rows}
@@ -199,7 +198,7 @@ func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketBy
 		}
 		return err
 	})
-		log.Info("repo: ", settings.Repo, " Read ", count, " records")
+	log.Info("repo: ", settings.Repo, " Read ", count, " records")
 	return err
 
 }

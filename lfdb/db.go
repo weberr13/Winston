@@ -189,10 +189,15 @@ func U64ToPaddedBytes(v uint64) []byte {
 
 
 //Close ...
-func (d DB) Close() error {
+func (d *DB) Close() error {
+	if d == nil {
+		return nil
+	}
+	// log.Debug("CLOSING: ", d)
 	if d.db != nil {
 		err := d.db.Close()
 		d.db = nil
+		// log.Debug("CLOSE: ", d)
 		return err
 	}
 	return nil

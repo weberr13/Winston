@@ -100,27 +100,33 @@ func (r Repo) ReadBucket(bucketPath string, f func(tx *bolt.Tx) error) error {
 func (r Repo) ReadPartition(bucketPath string,readBatchSize int, startTimeMS int64, endTimeMS int64, f func(rows []*pb.Row)error) error {
 	fullPath := fmt.Sprintf("%s/%s", r.repoDir, bucketPath)
 	db := NewDB(fullPath)
+	rows := make([]*pb.Row, 0, readBatchSize)
 	err := db.OpenReadOnly()
-	defer db.Close()
 	if err != nil {
 		return err
 	}
-	rows := make([]*pb.Row, 0, readBatchSize)
+	defer db.Close()
 	position := uint64(0)
 	for {
-	rows, position, err = db.ReadN(position,readBatchSize, startTimeMS, endTimeMS)
-	if err == io.EOF {
-		log.Debug("Finished read bucket by time request")
-		break
-	}
-	if err != nil {
-		return err
-	}
+		
+		rows, position, err = db.ReadN(position,readBatchSize, startTimeMS, endTimeMS)
 
-	err = f(rows)
-	if err != nil {
-		return err
-	}
+		if err == io.EOF {
+			log.Info("Finished read bucket by time request")
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+
+		err = f(rows)
+		if err != nil {
+			return err
+		}
+		if err != nil {
+			return err
+		}
 	}
 	return f(rows)
 } 
