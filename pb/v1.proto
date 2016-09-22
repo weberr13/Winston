@@ -1,0 +1,76 @@
+syntax = "proto3";
+package winston;
+
+import "github.com/gogo/protobuf/gogoproto/gogo.proto";
+
+option (gogoproto.marshaler_all) = true;
+option (gogoproto.sizer_all) = true;
+option (gogoproto.unmarshaler_all) = true;
+option (gogoproto.goproto_getters_all) = false;
+
+service V1 {
+  rpc UpsertRepo(RepoSettings) returns (EMPTY){}
+  
+  rpc Write(stream WriteRequest) returns (EMPTY){}
+
+  rpc GetBuckets(BucketsRequest) returns (stream Bucket){}
+  rpc ReadBucketByTime(ReadBucket) returns (stream ReadResponse){}
+  rpc ReadByTime(Read) returns (stream ReadResponse){}
+  rpc DeleteRepo()
+}
+
+
+message ReadBucket {
+	string repo = 1;
+	uint64 startTimeMs = 2;
+	uint64 endTimeMs = 3;
+	string bucketPath = 4;
+}
+
+message Read {
+	string repo = 1;
+	uint64 startTimeMs = 2;
+	uint64 endTimeMs = 3;
+}
+
+message ReadResponse {
+	string repo = 1;
+	repeated Row rows = 2;
+}
+
+message BucketsRequest {
+	string repo = 1;
+	uint64 startTimeMs = 2;
+	uint64 endTimeMs = 3;
+}
+
+message Bucket {
+	string path = 1;
+}
+
+message RepoSettings {
+	string repo = 1;
+	Format format = 2;
+	string timeField = 3;
+	repeated string groupByFields = 4;
+	int32 groupByBuckets = 5;
+
+    enum Format {
+		RAW  = 0;
+		JSON = 1;
+	}
+}
+
+message WriteRequest {
+	string repo = 1;
+	repeated Row rows = 2;
+}
+
+message Row {
+	bytes data  = 2;
+	uint64 timeMs = 3;
+}
+
+message EMPTY {	
+}
+
