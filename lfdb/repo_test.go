@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,12 +19,12 @@ const TEMP_PREFIX = "winston_repo_test"
 func TestRepo(t *testing.T) {
 	DeleteOldTmpFiles()
 	defer log.Flush()
-	Convey("GetBucketsCallFunc - find correct buckets", t, func() {
+	Convey("GetPartitionsCallFunc - find correct buckets", t, func() {
 		now := time.Now().UTC()
 		r := CreateRepoWithFakeFiles("repo", 5, now)
 		cnt := 0
 		Today := TimeRoundToDay(now)
-		r.GetBucketsCallFunc(Today, Today, func(path string) error {
+		r.GetPartitionsCallFunc(Today, Today, func(path string) error {
 			log.Info(path)
 			cnt++
 			return nil
@@ -31,7 +32,7 @@ func TestRepo(t *testing.T) {
 		So(cnt, ShouldEqual, 5)
 	})
 
-	Convey("GetBucketsCallFunc - ignores folders", t, func() {
+	Convey("GetPartitionsCallFunc - ignores folders", t, func() {
 		now := time.Now().UTC()
 		r := CreateRepoWithFakeFiles("repo", 5, now)
 		nowFormat := now.Format(MonthDayYear)
@@ -40,7 +41,7 @@ func TestRepo(t *testing.T) {
 		So(err, ShouldBeNil)
 		cnt := 0
 		Today := TimeRoundToDay(now)
-		r.GetBucketsCallFunc(Today, Today, func(path string) error {
+		r.GetPartitionsCallFunc(Today, Today, func(path string) error {
 			log.Info(path)
 			cnt++
 			return nil
@@ -48,11 +49,11 @@ func TestRepo(t *testing.T) {
 		So(cnt, ShouldEqual, 5)
 	})
 
-	Convey("CreateBucketIfNotExist - create a new bucket", t, func() {
+	Convey("CreatePartitionIfNotExist - create a new bucket", t, func() {
 		r := NewRepo("repo", GetTestDir())
 		dir, err := ioutil.TempDir("", TEMP_PREFIX)
 		So(err, ShouldBeNil)
-		db, err := r.CreateBucketIfNotExist(time.Now(), dir, 255)
+		db, err := r.CreatePartitionIfNotExist(time.Now(), dir, 255)
 		So(err, ShouldBeNil)
 		err = db.Open()
 		defer db.Close()
@@ -60,18 +61,87 @@ func TestRepo(t *testing.T) {
 
 	})
 
-	Convey("CreateBucketIfNotExist - create same bucket twice", t, func() {
+	Convey("CreatePartitionIfNotExist - create same bucket twice", t, func() {
 		r := NewRepo("repo", GetTestDir())
 		dir, err := ioutil.TempDir("", TEMP_PREFIX)
 		So(err, ShouldBeNil)
-		db, err := r.CreateBucketIfNotExist(time.Now(), dir, 255)
+		db, err := r.CreatePartitionIfNotExist(time.Now(), dir, 255)
 		So(err, ShouldBeNil)
-		db, err = r.CreateBucketIfNotExist(time.Now(), dir, 255)
+		db, err = r.CreatePartitionIfNotExist(time.Now(), dir, 255)
 		So(err, ShouldBeNil)
 		err = db.Open()
 		defer db.Close()
 		So(err, ShouldBeNil)
 
+	})
+
+}
+
+func TestRepoPartitions(t *testing.T) {
+	DeleteOldTmpFiles()
+	defer log.Flush()
+
+	Convey("OpenPartition - open a partition and close it", t, func() {
+		now := time.Now()
+		today := TimeRoundToDay(now)
+		r := CreateRepoWithFakeFiles("partition_test", 1, now)
+		r.GetPartitionsCallFunc(today, today, func(path string) error {
+			partitionPath := r.repoDir + "/" + path
+			_, err := r.OpenPartition(partitionPath)
+			So(err, ShouldBeNil)
+			err = r.ClosePartition(partitionPath)
+			So(err, ShouldBeNil)
+			return nil
+		})
+
+	})
+
+	Convey("OpenPartition - open a but close wrong partition", t, func() {
+		now := time.Now()
+		today := TimeRoundToDay(now)
+		r := CreateRepoWithFakeFiles("partition_test", 1, now)
+		r.GetPartitionsCallFunc(today, today, func(path string) error {
+			partitionPath := r.repoDir + "/" + path
+			_, err := r.OpenPartition(partitionPath)
+			So(err, ShouldBeNil)
+			err = r.ClosePartition("invalid_path")
+			So(err, ShouldNotBeNil)
+			return nil
+		})
+	})
+
+	Convey("OpenPartition - open many times from many threads and validate close is clean", t, func() {
+		now := time.Now()
+		today := TimeRoundToDay(now)
+		r := CreateRepoWithFakeFiles("partition_test", 1, now)
+		wg := &sync.WaitGroup{}
+		for i := 0; i < 50; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				r.GetPartitionsCallFunc(today, today, func(path string) error {
+					partitionPath := r.repoDir + "/" + path
+					_, err := r.OpenPartition(partitionPath)
+					if err != nil {
+						t.FailNow()
+					}
+					err = r.ClosePartition(partitionPath)
+					if err != nil {
+						t.FailNow()
+					}
+					return nil
+				})
+
+			}()
+		}
+		wg.Wait()
+		r.partitions.Lock()
+		defer r.partitions.Unlock()
+		for _, v := range r.partitions.P {
+			v.Lock()
+			So(v.openCount, ShouldEqual, 0)
+			v.Unlock()
+		}
 	})
 }
 
@@ -94,7 +164,7 @@ func DeleteOldTmpFiles() {
 }
 
 func CreateRepoWithFakeFiles(repo string, buckets int, now time.Time) Repo {
-	r := NewRepo("repo", GetTestDir())
+	r := NewRepo(repo, GetTestDir())
 	nowFormat := now.Format(MonthDayYear)
 	tempFull := fmt.Sprintf("%s/%s", r.repoDir, nowFormat)
 	os.MkdirAll(tempFull, 0777)

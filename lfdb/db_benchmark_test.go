@@ -29,7 +29,7 @@ func BenchmarkBasicWorkLoad10000(b *testing.B) {
 func RunWorkload(name string, batch int, b *testing.B) {
 	db := NewDB(name)
 	if db.Open() != nil {
-		b.Failnow()
+		b.FailNow()
 	}
 	defer db.Close()
 	var rows []Row

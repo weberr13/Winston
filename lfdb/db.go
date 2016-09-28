@@ -3,11 +3,11 @@ package lfdb
 import (
 	"encoding/binary"
 	"fmt"
+	pb "github.com/LogRhythm/Winston/pb"
 	SNAP "github.com/LogRhythm/Winston/snappy"
 	"github.com/boltdb/bolt"
 	log "github.com/cihub/seelog"
 	"io"
-	pb "github.com/LogRhythm/Winston/pb"
 	// TIME "github.com/LogRhythm/Winston/time"
 	"time"
 )
@@ -49,6 +49,7 @@ func (d *DB) Open() (err error) {
 func (d *DB) OpenReadOnly() (err error) {
 	if d.db == nil {
 		//long long time but fail eventually
+		log.Info("Opening read only")
 		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Minute, ReadOnly: true})
 	}
 	return err
@@ -129,6 +130,10 @@ func (d DB) ReadN(startPosition uint64, n int, startTimeMS int64, endTimeMS int6
 		tc := tb.Cursor()
 		bc := b.Cursor()
 		for k, v := tc.Seek(U64ToPaddedBytes(startPosition)); k != nil; k, v = tc.Next() {
+			if len(k) != 8 {
+				log.Error("Invalid key in db")
+				continue
+			}
 			position = binary.BigEndian.Uint64(k)
 			rt := binary.BigEndian.Uint64(v)
 			if rt >= uint64(startTimeMS) && rt <= uint64(endTimeMS) {
@@ -187,7 +192,6 @@ func U64ToPaddedBytes(v uint64) []byte {
 	return b
 }
 
-
 //Close ...
 func (d *DB) Close() error {
 	if d == nil {
@@ -197,7 +201,7 @@ func (d *DB) Close() error {
 	if d.db != nil {
 		err := d.db.Close()
 		d.db = nil
-		// log.Debug("CLOSE: ", d)
+		// log.Debug("CLOSED: ", d)
 		return err
 	}
 	return nil

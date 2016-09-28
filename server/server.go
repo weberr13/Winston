@@ -167,7 +167,7 @@ func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServe
 	return nil
 }
 
-const ReadBatchSize = 500
+const ReadBatchSize = 1000
 
 func (w Winston) ReadByTime(read *pb.Read, stream pb.V1_ReadByTimeServer) error {
 	return fmt.Errorf("not implemented")
