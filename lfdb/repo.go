@@ -78,7 +78,10 @@ func (r Repo) ClosePartition(partitionPath string) error {
 	defer p.Unlock()
 	p.openCount--
 	if p.openCount == 0 {
+		log.Info("partition: ", p.DB.Path, " closing, no more open transactions")
 		p.DB.Close()
+	} else {
+		log.Info("partition: ", p.DB.Path, " transactions: ", p.openCount)
 	}
 	return nil
 }
@@ -188,11 +191,11 @@ func (r Repo) ReadPartitionByTime(partitionPath string, readBatchSize int, start
 //CreatePartitionIfNotExist ...
 func (r Repo) CreatePartitionIfNotExist(t time.Time, basePath string, partition int) (db DB, err error) {
 	date := t.Format(MonthDayYear)
-	fullFolderPattern := fmt.Sprintf("%s/%s/%s/", r.basePath, r.name, date)
+	fullFolderPattern := fmt.Sprintf("%s/%s/%s", r.basePath, r.name, date)
 	if err = os.MkdirAll(fullFolderPattern, 0750); err != nil {
 		return db, err
 	}
 	filePath := fmt.Sprintf("%s/%d%s", fullFolderPattern, partition, DB_EXT)
-	db = NewDB(filePath)
-	return db, err
+	p, err := r.OpenPartition(filePath)
+	return p.DB, err
 }

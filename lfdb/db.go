@@ -40,6 +40,7 @@ func NewDB(path string) DB {
 func (d *DB) Open() (err error) {
 	if d.db == nil {
 		//long long time but fail eventually
+		log.Info("Opening db: ", d.Path)
 		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Minute})
 	}
 	return err
@@ -49,7 +50,7 @@ func (d *DB) Open() (err error) {
 func (d *DB) OpenReadOnly() (err error) {
 	if d.db == nil {
 		//long long time but fail eventually
-		log.Info("Opening read only")
+		log.Info("Opening read only: ", d.Path)
 		d.db, err = bolt.Open(d.Path, 0600, &bolt.Options{Timeout: 30 * time.Minute, ReadOnly: true})
 	}
 	return err
