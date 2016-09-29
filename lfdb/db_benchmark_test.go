@@ -1,8 +1,8 @@
 package lfdb
 
 import (
-	// "fmt"
-	// uuid "github.com/satori/go.uuid"
+	"fmt"
+	"io"
 	"testing"
 	"time"
 )
@@ -27,27 +27,45 @@ func BenchmarkBasicWorkLoad10000(b *testing.B) {
 }
 
 func RunWorkload(name string, batch int, b *testing.B) {
-
-	// run the Fib function b.N times
 	db := NewDB(name)
-	db.Open()
-	// boom.DeleteBucket(bucketName)
+	if db.Open() != nil {
+		b.FailNow()
+	}
 	defer db.Close()
 	var rows []Row
+	startTime := time.Now()
 	for i := 0; i < batch; i++ {
 
 		row := Row{Time: time.Now(), Data: []byte("Data blah blah oi f wooooooooowfiejfojwifjwofjwiofjwoi Data blah blah oi f wooooooooowfiejfojwifjwofjwiofjwoi Data blah blah oi f wooooooooowfiejfojwifjwofjwiofjwoi")}
 		rows = append(rows, row)
 	}
+	position := uint64(0)
 	for n := 0; n < b.N; n++ {
-		_ = db.WriteBatch(rows...)
-		// db.ReadView(func(tx bolt.))
-		// var keys [][]byte
-		// for _, r := range results {
-		// 	keys = append(keys, r.BoomID)
-		// }
-		// old, more, err = boom.GetOlderThenOrEqualTo(time.Now(), bucketName)
-		// boom.DeleteKeys(bucketName, keys...)
-		// _, _ = boom.BucketStats(bucketName)
+		err = db.WriteBatch(rows...)
+		if err != nil {
+			panic("Error durring write")
+		}
+
+		for {
+			records, newPosition, err := db.ReadN(position, batch, startTime.UnixNano(), time.Now().UnixNano())
+			if err == io.EOF {
+				break
+			}
+			position = newPosition
+			if len(records) == 0 {
+				fmt.Printf("recordCnt: %v, position: %v, err: %v", len(records), position, err)
+				panic("Invalid record count of 0")
+			}
+			if position < uint64(batch) {
+				panic("Invalid position")
+			}
+			if err != nil {
+				panic("got unexpected error")
+			}
+			fmt.Printf("recordCnt: %v, position: %v, err: %v", len(records), position, err)
+			// fmt.Printf("recordCnt: %v, position: %v, err: %v", len(records), position, err)
+		}
+		// log.Info(fmt.Sprintf("R: %v P: %v err: %v", len(records), position, err))
 	}
+
 }

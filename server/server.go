@@ -1,12 +1,10 @@
 package server
 
 import (
-	"encoding/binary"
 	"fmt"
 	LFDB "github.com/LogRhythm/Winston/lfdb"
 	pb "github.com/LogRhythm/Winston/pb"
-	SNAP "github.com/LogRhythm/Winston/snappy"
-	"github.com/boltdb/bolt"
+	TIME "github.com/LogRhythm/Winston/time"
 	log "github.com/cihub/seelog"
 	"github.com/tidwall/gjson"
 	"golang.org/x/net/context"
@@ -15,6 +13,7 @@ import (
 	"net"
 	"os"
 	"stablelib.com/v1/crypto/siphash"
+	"sync"
 	"time"
 )
 
@@ -24,6 +23,12 @@ type Winston struct {
 	listen          net.Listener
 	dataDir         string
 	RepoSettingPath string
+	repos           *Repos
+}
+
+type Repos struct {
+	R map[string]*LFDB.Repo
+	*sync.Mutex
 }
 
 const SETTINGS_BUCKET = "v1_settings"
@@ -44,7 +49,12 @@ func NewWinston(conf WinstonConf) Winston {
 	// 	}
 	// 	opts = []grpc.ServerOption{grpc.Creds(creds)}
 	// }
-	w := Winston{server: grpc.NewServer(opts...), listen: lis, dataDir: conf.DataDir}
+	w := Winston{
+		server: grpc.NewServer(opts...),
+		listen: lis, dataDir: conf.DataDir,
+		repos: &Repos{R: make(map[string]*LFDB.Repo, 0), Mutex: &sync.Mutex{}},
+	}
+
 	if _, err := os.Stat(w.dataDir); os.IsNotExist(err) {
 		err := os.Mkdir(w.dataDir, 0600)
 		if err != nil {
@@ -126,7 +136,7 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 			}
 			var t time.Time
 			if r.TimeMs != 0 {
-				t = msToTime(int64(r.TimeMs))
+				t = TIME.MSToTime(int64(r.TimeMs))
 			} else if len(settings.TimeField) != 0 && r.TimeMs == 0 {
 
 				timeValue := gjson.Get(string(r.Data), settings.TimeField).String()
@@ -144,7 +154,7 @@ func (w Winston) Write(stream pb.V1_WriteServer) error {
 				bucketRows[bucket] = make(map[time.Time][]LFDB.Row, 0)
 			}
 			//truncate to day
-			mapTime := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+			mapTime := TIME.TimeRoundToDay(t)
 
 			if bucketRows[bucket][mapTime] == nil {
 				bucketRows[bucket][mapTime] = make([]LFDB.Row, 0)
@@ -160,102 +170,49 @@ func (w Winston) GetBuckets(req *pb.BucketsRequest, stream pb.V1_GetBucketsServe
 	if err != nil {
 		return fmt.Errorf("failed to get settings for repo: ", err)
 	}
-	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
-	startTime := TimeRoundToDay(msToTime(int64(req.StartTimeMs)))
-	endTime := TimeRoundToDay(msToTime(int64(req.EndTimeMs)))
-	repo.GetBucketsCallFunc(startTime, endTime, func(path string) error {
+	repo := w.GetRepo(*settings)
+	startTime := TIME.TimeRoundToDay(TIME.MSToTime(int64(req.StartTimeMs)))
+	endTime := TIME.TimeRoundToDay(TIME.MSToTime(int64(req.EndTimeMs)))
+	repo.GetPartitionsCallFunc(startTime, endTime, func(path string) error {
 		return stream.Send(&pb.Bucket{Path: path})
 	})
 	return nil
 }
 
-//TimeRoundToDay rounds a time object to the current day
-func TimeRoundToDay(t time.Time) time.Time {
-	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
-}
-
-const (
-	millisPerSecond     = int64(time.Second / time.Millisecond)
-	nanosPerMillisecond = int64(time.Millisecond / time.Nanosecond)
-)
-
-func msToTime(msTime int64) time.Time {
-	return time.Unix(msTime/millisPerSecond,
-		(msTime%millisPerSecond)*nanosPerMillisecond).UTC()
-}
-
-const ReadBatchSize = 300
+const ReadBatchSize = 1000
 
 func (w Winston) ReadByTime(read *pb.Read, stream pb.V1_ReadByTimeServer) error {
 	return fmt.Errorf("not implemented")
 }
 
-func (w Winston) ReadBucketByTime(pull *pb.ReadBucket, stream pb.V1_ReadBucketByTimeServer) error {
-	if pull == nil {
-		return fmt.Errorf("invalid request")
+func (w Winston) ReadBucketByTime(read *pb.ReadBucket, stream pb.V1_ReadBucketByTimeServer) error {
+	if read == nil {
+		return fmt.Errorf("invalid read request")
 	}
-	settings, err := w.getSettingsForRepo(pull.Repo)
+	settings, err := w.getSettingsForRepo(read.Repo)
 	if err != nil {
 		return fmt.Errorf("failed to get settings: ", err)
 	}
 	count := 0
-	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
-	err = repo.ReadBucket(fmt.Sprintf("%s/%s/%s", w.dataDir, pull.Repo, pull.BucketPath), func(tx *bolt.Tx) error {
-		rows := make([]*pb.Row, 0, ReadBatchSize)
-		b := tx.Bucket(LFDB.BUCKET_DATA)
-
-		if b == nil {
-			return fmt.Errorf("data bucket does not exist")
-		}
-		tb := b.Bucket(LFDB.BUCKET_TIME)
-		if nil == tb {
-			return fmt.Errorf("time bucket doesn't exist")
-		}
-
-		tc := tb.Cursor()
-		bc := b.Cursor()
-		startTime := msToTime(int64(pull.StartTimeMs)).UnixNano()
-		endTime := msToTime(int64(pull.EndTimeMs)).UnixNano()
-		for k, v := tc.First(); k != nil; k, v = tc.Next() {
-
-			rt := binary.BigEndian.Uint64(v)
-
-			if rt >= uint64(startTime) && rt <= uint64(endTime) {
-				_, bv := bc.Seek(k)
-				if bv == nil {
-					log.Error("key: ", k, " repo: ", settings.Repo)
-					continue
-				}
-				bv, err = SNAP.DecompressBytes(bv)
-				if err != nil {
-					return err
-				}
-				rows = append(rows, &pb.Row{TimeMs: rt, Data: bv})
-				if len(rows) >= ReadBatchSize {
-					err = stream.Send(&pb.ReadResponse{Repo: settings.Repo, Rows: rows})
-					if err != nil {
-						log.Error("send to client: ", err)
-						return err
-					}
-					// log.Info("foreach Rows: ", len(rows), " flushing")
-					rows = make([]*pb.Row, 0, ReadBatchSize)
-				}
-				count++
-			}
-		}
+	repo := w.GetRepo(*settings)
+	log.Info("Read Request: ", read)
+	startTime := TIME.MSToTime(int64(read.StartTimeMs))
+	endTime := TIME.MSToTime(int64(read.EndTimeMs))
+	err = repo.ReadPartitionByTime(read.BucketPath, ReadBatchSize, startTime.UnixNano(), endTime.UnixNano(), func(rows []*pb.Row) error {
 		if len(rows) > 0 {
-			log.Info("rows: ", len(rows), " flushing")
+			count += len(rows)
 			msg := &pb.ReadResponse{Repo: settings.Repo, Rows: rows}
 			err = stream.Send(msg)
 			if err != nil {
 				log.Error("send to client: ", err)
+				return err
 			}
 		}
-		return nil
+		return err
 	})
-
 	log.Info("repo: ", settings.Repo, " Read ", count, " records")
 	return err
+
 }
 
 func (w Winston) getSettingsForRepo(repo string) (settings *pb.RepoSettings, err error) {
@@ -301,6 +258,19 @@ func (w Winston) UpsertRepo(ctx context.Context, settings *pb.RepoSettings) (*pb
 	return &pb.EMPTY{}, err
 }
 
+func (w Winston) GetRepo(settings pb.RepoSettings) *LFDB.Repo {
+	w.repos.Lock()
+	defer w.repos.Unlock()
+	r, ok := w.repos.R[settings.Repo]
+	if !ok {
+		repo := LFDB.NewRepo(settings.Repo, w.dataDir)
+		r = &repo
+		w.repos.R[settings.Repo] = r
+
+	}
+	return r
+}
+
 func (w Winston) openSettingsDB() (db LFDB.DB, err error) {
 	db = LFDB.NewDB(w.RepoSettingPath)
 	err = db.Open()
@@ -316,24 +286,14 @@ func (w Winston) openSettingsDBReadOnly() (db LFDB.DB, err error) {
 
 //WriteToDB writes a slice of rows to disk.
 func (w Winston) WriteToDB(settings pb.RepoSettings, bucket int, t time.Time, rows []LFDB.Row) error {
-	repo := LFDB.NewRepo(settings.Repo, w.dataDir)
-	db, err := repo.CreateBucketIfNotExist(t, w.dataDir, bucket)
-
-	if nil != err {
+	repo := w.GetRepo(settings)
+	db, err := repo.CreatePartitionIfNotExist(t, w.dataDir, bucket)
+	if err != nil {
 		log.Error("failed to create bucket for repo: ", settings.Repo)
 		return err
 	}
-	err = db.Open()
-	if err != nil {
-		return err
-	}
-
-	err = db.WriteBatch(rows...)
-	if err != nil {
-		return err
-	}
-	err = db.Close()
-	return err
+	defer repo.ClosePartition(db.Path)
+	return db.WriteBatch(rows...)
 }
 
 //Close winston
