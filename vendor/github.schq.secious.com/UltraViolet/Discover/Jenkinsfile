@@ -1,0 +1,7 @@
+node('uv_linux') {
+
+  stage 'build and test'
+  git url: "git@github.schq.secious.com:UltraViolet/Discover.git"
+  checkout scm
+  sh 'bash -x jenkins_install.sh'
+}

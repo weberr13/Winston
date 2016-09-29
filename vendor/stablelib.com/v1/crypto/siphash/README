@@ -1,0 +1,31 @@
+siphash
+-------
+
+Package siphash implements SipHash-2-4, a fast short-input PRF created by
+Jean-Philippe Aumasson and Daniel J. Bernstein.
+
+
+Usage:
+
+    import "stablelib.com/v1/crypto/siphash"
+
+
+Documentation:
+
+    https://stablelib.com/doc/v1/crypto/siphash
+
+
+Upstream:
+
+    https://github.com/dchest/siphash
+
+
+StableLib package version:
+
+    1.0.0
+
+
+Use is subject to StableLib Terms of Service: https://stablelib.com/terms/
+
+StableLib is a distribution of open source Go packages with long-term support.
+Learn more at https://stablelib.com
